@@ -28,7 +28,7 @@ pub async fn add_user(db_pool: &Pool, username: &str, passhash: &str) -> Result<
                 db_params,
             ) {
                 Err(rusqlite::Error::SqliteFailure(info, s)) => {
-                    // check primary key conflict
+                    // check username conflict
                     if info.extended_code == 2067 {
                         return Err(AppError::UserAlreadyExist);
                     } else {
