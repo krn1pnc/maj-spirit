@@ -8,7 +8,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::config::PASSWORD_SALT;
-use crate::db::{add_user, get_passhash};
+use crate::db::{add_user, verify_passhash};
 use crate::error::AppError;
 use crate::jwt;
 use crate::state::AppState;
@@ -28,21 +28,18 @@ async fn register(db_pool: &Pool, user: User) -> Result<(), AppError> {
 async fn login(db_pool: &Pool, user: User) -> Result<String, AppError> {
     let password_salted = user.password + PASSWORD_SALT;
     let passhash = hex::encode(Sha256::digest(&password_salted));
-    if passhash == get_passhash(db_pool, &user.username).await? {
-        return jwt::get_token(&user.username);
-    } else {
-        return Err(AppError::PasswordIncorrect);
-    }
+    let uid = verify_passhash(db_pool, &user.username, &passhash).await?;
+    return jwt::get_token(uid);
 }
 
 pub async fn jwt_auth(mut req: Request, next: Next) -> Result<Response, http::StatusCode> {
     let auth_header = req.headers().get(http::header::AUTHORIZATION);
     let auth_str = auth_header.and_then(|header| header.to_str().ok());
     let token = auth_str.and_then(|s| s.strip_prefix("Bearer "));
-    let username = token.and_then(|t| jwt::verify_token(t).ok());
-    match username {
-        Some(username) => {
-            req.extensions_mut().insert(username);
+    let uid = token.and_then(|t| jwt::verify_token(t).ok());
+    match uid {
+        Some(uid) => {
+            req.extensions_mut().insert(uid);
             return Ok(next.run(req).await);
         }
         None => return Err(http::StatusCode::UNAUTHORIZED),
@@ -84,6 +81,6 @@ pub async fn handle_login(
     }
 }
 
-pub async fn handle_hello(Extension(current_user): Extension<String>) -> String {
-    return format!("hello, {}", current_user);
+pub async fn handle_hello(Extension(uid): Extension<u64>) -> String {
+    return format!("hello, user uid = {}", uid);
 }

@@ -8,48 +8,53 @@ use axum::response::IntoResponse;
 use crate::error::AppError;
 use crate::state::AppState;
 
-#[derive(Default)]
 pub struct Room {
-    players: HashSet<String>,
+    players: HashSet<u64>,
+}
+impl Room {
+    pub fn new() -> Room {
+        let players = HashSet::with_capacity(4);
+        return Room { players };
+    }
 }
 
 #[derive(Default)]
 pub struct Hall {
     pub available_room: HashMap<usize, Room>,
-    pub in_room: HashMap<String, usize>,
+    pub in_room: HashMap<u64, usize>,
 }
 
-async fn room_join(hall: &mut Hall, room_id: usize, current_user: String) -> Result<(), AppError> {
-    if hall.in_room.contains_key(&current_user) {
-        return Err(AppError::UserAlreadyInRoom(hall.in_room[&current_user]));
+async fn room_join(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
+    if hall.in_room.contains_key(&uid) {
+        return Err(AppError::UserAlreadyInRoom(hall.in_room[&uid]));
     } else {
         if let Some(room) = hall.available_room.get_mut(&room_id) {
             if room.players.len() < 4 {
-                hall.in_room.insert(current_user.clone(), room_id);
-                room.players.insert(current_user);
+                hall.in_room.insert(uid, room_id);
+                room.players.insert(uid);
                 return Ok(());
             } else {
                 return Err(AppError::RoomIsFull);
             }
         } else {
-            hall.in_room.insert(current_user.clone(), room_id);
-            let mut room = Room::default();
-            room.players.insert(current_user);
+            hall.in_room.insert(uid, room_id);
+            let mut room = Room::new();
+            room.players.insert(uid);
             hall.available_room.insert(room_id, room);
             return Ok(());
         }
     }
 }
 
-async fn room_leave(hall: &mut Hall, room_id: usize, current_user: String) -> Result<(), AppError> {
+async fn room_leave(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
     if !hall.available_room.contains_key(&room_id) {
         return Err(AppError::RoomNotExist);
-    } else if !hall.in_room.contains_key(&current_user) || room_id != hall.in_room[&current_user] {
+    } else if !hall.in_room.contains_key(&uid) || room_id != hall.in_room[&uid] {
         return Err(AppError::UserNotInRoom);
     } else {
-        hall.in_room.remove(&current_user);
+        hall.in_room.remove(&uid);
         let room = hall.available_room.get_mut(&room_id).unwrap();
-        room.players.remove(&current_user);
+        room.players.remove(&uid);
         if room.players.len() == 0 {
             hall.available_room.remove(&room_id);
         }
@@ -60,10 +65,10 @@ async fn room_leave(hall: &mut Hall, room_id: usize, current_user: String) -> Re
 pub async fn handle_room_join(
     Path(room_id): Path<usize>,
     State(state): State<AppState>,
-    Extension(current_user): Extension<String>,
+    Extension(uid): Extension<u64>,
 ) -> http::Response<Body> {
     let mut hall = state.hall.write().await;
-    match room_join(&mut hall, room_id, current_user).await {
+    match room_join(&mut hall, room_id, uid).await {
         Ok(_) => return http::StatusCode::OK.into_response(),
         Err(AppError::UserAlreadyInRoom(room_id)) => {
             return (
@@ -88,10 +93,10 @@ pub async fn handle_room_join(
 pub async fn handle_room_leave(
     Path(room_id): Path<usize>,
     State(state): State<AppState>,
-    Extension(current_user): Extension<String>,
+    Extension(uid): Extension<u64>,
 ) -> http::Response<Body> {
     let mut hall = state.hall.write().await;
-    match room_leave(&mut hall, room_id, current_user).await {
+    match room_leave(&mut hall, room_id, uid).await {
         Ok(_) => return http::StatusCode::OK.into_response(),
         Err(AppError::RoomNotExist) => {
             return (http::StatusCode::NOT_FOUND, "room not exist").into_response();

@@ -9,10 +9,10 @@ use crate::error::AppError;
 #[derive(Clone, Serialize, Deserialize)]
 struct Claims {
     exp: u64,
-    name: String,
+    uid: u64,
 }
 
-pub fn get_token(username: &str) -> Result<String, AppError> {
+pub fn get_token(uid: u64) -> Result<String, AppError> {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)?
         .as_secs();
@@ -20,18 +20,18 @@ pub fn get_token(username: &str) -> Result<String, AppError> {
         &Header::default(),
         &Claims {
             exp: now + JWT_EXPIRE_DURATION,
-            name: username.to_string(),
+            uid: uid,
         },
         &EncodingKey::from_secret(JWT_SECRET),
     )?;
     return Ok(token);
 }
 
-pub fn verify_token(token: &str) -> Result<String, AppError> {
+pub fn verify_token(token: &str) -> Result<u64, AppError> {
     let token = decode::<Claims>(
         &token,
         &DecodingKey::from_secret(JWT_SECRET),
         &Validation::default(),
     )?;
-    return Ok(token.claims.name);
+    return Ok(token.claims.uid);
 }
