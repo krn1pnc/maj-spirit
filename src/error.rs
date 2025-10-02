@@ -1,5 +1,3 @@
-use std::time::SystemTimeError;
-
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -17,7 +15,7 @@ pub enum AppError {
     Jwt(#[from] jsonwebtoken::errors::Error),
 
     #[error("system time error: {0}")]
-    SystemTime(#[from] SystemTimeError),
+    SystemTime(#[from] std::time::SystemTimeError),
 
     #[error("")]
     UserAlreadyExist,
@@ -39,4 +37,13 @@ pub enum AppError {
 
     #[error("")]
     RoomIsFull,
+
+    #[error("")]
+    UserAlreadyConnected,
+
+    #[error("")]
+    UserNotConnected,
+
+    #[error("mpsc send error: {0}")]
+    MpscSendError(#[from] tokio::sync::mpsc::error::SendError<crate::ws::ServerMessage>),
 }
