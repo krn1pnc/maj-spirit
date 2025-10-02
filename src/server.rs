@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use axum::{Router, middleware};
 use deadpool_sqlite::{Config, Runtime};
 
 use maj_spirit::config::{DATABASE_FILE, LISTEN_ADDR};
-use maj_spirit::{handle_hello, handle_login, handle_register, init_db, jwt_auth};
+use maj_spirit::{handle_hello, handle_login, handle_register, handle_ws, init_db, jwt_auth};
 
 #[tokio::main]
 async fn main() {
@@ -17,6 +17,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/hello", get(handle_hello))
+        .route("/ws", any(handle_ws))
         .route_layer(middleware::from_fn(jwt_auth))
         .route("/register", post(handle_register))
         .route("/login", post(handle_login))
