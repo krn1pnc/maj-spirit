@@ -27,4 +27,16 @@ pub enum AppError {
 
     #[error("")]
     PasswordIncorrect,
+
+    #[error("")]
+    UserAlreadyInRoom(usize),
+
+    #[error("")]
+    UserNotInRoom,
+
+    #[error("")]
+    RoomNotExist,
+
+    #[error("")]
+    RoomIsFull,
 }

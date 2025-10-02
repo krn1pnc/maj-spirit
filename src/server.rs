@@ -5,7 +5,11 @@ use axum::{Router, middleware};
 use deadpool_sqlite::{Config, Runtime};
 
 use maj_spirit::config::{DATABASE_FILE, LISTEN_ADDR};
-use maj_spirit::{handle_hello, handle_login, handle_register, handle_ws, init_db, jwt_auth};
+use maj_spirit::state::AppState;
+use maj_spirit::{
+    handle_hello, handle_login, handle_register, handle_room_join, handle_room_leave, handle_ws,
+    init_db, jwt_auth,
+};
 
 #[tokio::main]
 async fn main() {
@@ -15,13 +19,17 @@ async fn main() {
     let db_pool = Arc::new(db_cfg.create_pool(Runtime::Tokio1).unwrap());
     init_db(&db_pool).await.unwrap();
 
+    let state = AppState::new(db_pool);
+
     let app = Router::new()
         .route("/hello", get(handle_hello))
+        .route("/room/{id}/join", post(handle_room_join))
+        .route("/room/{id}/leave", post(handle_room_leave))
         .route("/ws", any(handle_ws))
         .route_layer(middleware::from_fn(jwt_auth))
         .route("/register", post(handle_register))
         .route("/login", post(handle_login))
-        .with_state(db_pool);
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(LISTEN_ADDR).await.unwrap();
     tracing::info!("listening at {}", LISTEN_ADDR);

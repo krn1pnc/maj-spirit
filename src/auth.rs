@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use axum::body::Body;
 use axum::extract::{Form, Request, State};
 use axum::middleware::Next;
@@ -13,6 +11,7 @@ use crate::config::PASSWORD_SALT;
 use crate::db::{add_user, get_passhash};
 use crate::error::AppError;
 use crate::jwt;
+use crate::state::AppState;
 
 #[derive(Deserialize)]
 pub struct User {
@@ -51,10 +50,10 @@ pub async fn jwt_auth(mut req: Request, next: Next) -> Result<Response, http::St
 }
 
 pub async fn handle_register(
-    State(db_pool): State<Arc<Pool>>,
+    State(state): State<AppState>,
     Form(user): Form<User>,
 ) -> http::Response<Body> {
-    match register(&db_pool, user).await {
+    match register(&state.db_pool, user).await {
         Ok(_) => return http::StatusCode::OK.into_response(),
         Err(AppError::UserAlreadyExist) => {
             return (http::StatusCode::CONFLICT, "user exists").into_response();
@@ -67,10 +66,10 @@ pub async fn handle_register(
 }
 
 pub async fn handle_login(
-    State(db_pool): State<Arc<Pool>>,
+    State(state): State<AppState>,
     Form(user): Form<User>,
 ) -> http::Response<Body> {
-    match login(&db_pool, user).await {
+    match login(&state.db_pool, user).await {
         Ok(token) => return token.into_response(),
         Err(AppError::UserNotExist) => {
             return (http::StatusCode::UNAUTHORIZED, "user not exist").into_response();
