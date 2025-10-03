@@ -2,6 +2,7 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod game;
 pub mod jwt;
 pub mod room;
 pub mod state;
