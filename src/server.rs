@@ -7,8 +7,8 @@ use deadpool_sqlite::{Config, Runtime};
 use maj_spirit::config::{DATABASE_FILE, LISTEN_ADDR};
 use maj_spirit::state::AppState;
 use maj_spirit::{
-    handle_hello, handle_login, handle_register, handle_room_join, handle_room_leave, handle_ws,
-    init_db, jwt_auth,
+    handle_hello, handle_login, handle_register, handle_room_join, handle_room_leave,
+    handle_room_start, handle_ws, init_db, jwt_auth,
 };
 
 #[tokio::main]
@@ -25,6 +25,7 @@ async fn main() {
         .route("/hello", get(handle_hello))
         .route("/room/{id}/join", post(handle_room_join))
         .route("/room/{id}/leave", post(handle_room_leave))
+        .route("/room/{id}/start", post(handle_room_start))
         .route("/ws", any(handle_ws))
         .route_layer(middleware::from_fn(jwt_auth))
         .route("/register", post(handle_register))

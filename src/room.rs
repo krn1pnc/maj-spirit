@@ -1,63 +1,75 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http;
 use axum::response::IntoResponse;
+use tokio::sync::{RwLock, mpsc};
 
 use crate::error::AppError;
 use crate::state::AppState;
-
-pub struct Room {
-    players: HashSet<u64>,
-}
-impl Room {
-    pub fn new() -> Room {
-        let players = HashSet::with_capacity(4);
-        return Room { players };
-    }
-}
+use crate::ws::ClientMessage;
 
 #[derive(Default)]
 pub struct Hall {
-    pub available_room: HashMap<usize, Room>,
-    pub in_room: HashMap<u64, usize>,
+    pub rooms: HashMap<usize, HashSet<u64>>,
+    pub belongs: HashMap<u64, usize>,
+    pub txs: Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<ClientMessage>>>>,
 }
 
 async fn room_join(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
-    if hall.in_room.contains_key(&uid) {
-        return Err(AppError::UserAlreadyInRoom(hall.in_room[&uid]));
+    if hall.belongs.contains_key(&uid) {
+        return Err(AppError::UserAlreadyInRoom(hall.belongs[&uid]));
     } else {
-        if let Some(room) = hall.available_room.get_mut(&room_id) {
-            if room.players.len() < 4 {
-                hall.in_room.insert(uid, room_id);
-                room.players.insert(uid);
+        if let Some(players) = hall.rooms.get_mut(&room_id) {
+            if players.len() < 4 {
+                players.insert(uid);
+                hall.belongs.insert(uid, room_id);
                 return Ok(());
             } else {
                 return Err(AppError::RoomIsFull);
             }
         } else {
-            hall.in_room.insert(uid, room_id);
-            let mut room = Room::new();
-            room.players.insert(uid);
-            hall.available_room.insert(room_id, room);
+            let mut players = HashSet::with_capacity(4);
+            players.insert(uid);
+            hall.belongs.insert(uid, room_id);
+            hall.rooms.insert(room_id, players);
             return Ok(());
         }
     }
 }
 
 async fn room_leave(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
-    if !hall.available_room.contains_key(&room_id) {
+    if !hall.rooms.contains_key(&room_id) {
         return Err(AppError::RoomNotExist);
-    } else if !hall.in_room.contains_key(&uid) || room_id != hall.in_room[&uid] {
+    } else if !hall.belongs.contains_key(&uid) || room_id != hall.belongs[&uid] {
         return Err(AppError::UserNotInRoom);
     } else {
-        hall.in_room.remove(&uid);
-        let room = hall.available_room.get_mut(&room_id).unwrap();
-        room.players.remove(&uid);
-        if room.players.len() == 0 {
-            hall.available_room.remove(&room_id);
+        hall.belongs.remove(&uid);
+        let room = hall.rooms.get_mut(&room_id).unwrap();
+        room.remove(&uid);
+        if room.len() == 0 {
+            hall.rooms.remove(&room_id);
         }
+        return Ok(());
+    }
+}
+
+async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
+    if !hall.rooms.contains_key(&room_id) {
+        return Err(AppError::RoomNotExist);
+    } else if !hall.belongs.contains_key(&uid) || room_id != hall.belongs[&uid] {
+        return Err(AppError::UserNotInRoom);
+    } else {
+        let (tx, mut rx) = mpsc::unbounded_channel::<ClientMessage>();
+
+        let mut txs = hall.txs.write().await;
+        txs.insert(room_id, tx.clone());
+        drop(txs);
+
+        todo!("spawn game task here");
+
         return Ok(());
     }
 }
@@ -104,6 +116,21 @@ pub async fn handle_room_leave(
         Err(AppError::UserNotInRoom) => {
             return (http::StatusCode::CONFLICT, "user not in room").into_response();
         }
+        Err(e) => {
+            tracing::error!("{}", e);
+            return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }
+}
+
+pub async fn handle_room_start(
+    Path(room_id): Path<usize>,
+    State(state): State<AppState>,
+    Extension(uid): Extension<u64>,
+) -> http::Response<Body> {
+    let mut hall = state.hall.write().await;
+    match room_start(&mut hall, room_id, uid).await {
+        Ok(_) => return http::StatusCode::OK.into_response(),
         Err(e) => {
             tracing::error!("{}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();

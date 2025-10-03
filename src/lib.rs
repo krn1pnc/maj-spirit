@@ -9,5 +9,5 @@ pub mod ws;
 
 pub use auth::{handle_hello, handle_login, handle_register, jwt_auth};
 pub use db::init_db;
-pub use room::{handle_room_join, handle_room_leave};
+pub use room::{handle_room_join, handle_room_leave, handle_room_start};
 pub use ws::handle_ws;
