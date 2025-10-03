@@ -15,7 +15,7 @@ use crate::ws::ClientMessage;
 pub struct Hall {
     pub rooms: HashMap<usize, HashSet<u64>>,
     pub belongs: HashMap<u64, usize>,
-    pub txs: Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<ClientMessage>>>>,
+    pub tx2rooms: Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<ClientMessage>>>>,
 }
 
 async fn room_join(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
@@ -64,9 +64,9 @@ async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
     } else {
         let (tx, mut rx) = mpsc::unbounded_channel::<ClientMessage>();
 
-        let mut txs = hall.txs.write().await;
-        txs.insert(room_id, tx.clone());
-        drop(txs);
+        let mut tx2rooms = hall.tx2rooms.write().await;
+        tx2rooms.insert(room_id, tx.clone());
+        drop(tx2rooms);
 
         todo!("spawn game task here");
 

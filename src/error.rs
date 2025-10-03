@@ -38,12 +38,12 @@ pub enum AppError {
     #[error("")]
     RoomIsFull,
 
-    #[error("")]
-    UserAlreadyConnected,
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::Error),
 
     #[error("")]
-    UserNotConnected,
+    GameNotStart,
 
     #[error("mpsc send error: {0}")]
-    MpscSendError(#[from] tokio::sync::mpsc::error::SendError<crate::ws::ServerMessage>),
+    ClientMessageSendError(#[from] tokio::sync::mpsc::error::SendError<crate::ws::ClientMessage>),
 }
