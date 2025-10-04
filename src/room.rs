@@ -8,14 +8,16 @@ use axum::response::IntoResponse;
 use tokio::sync::{RwLock, mpsc};
 
 use crate::error::AppError;
+use crate::game;
 use crate::state::AppState;
-use crate::ws::ClientMessage;
+use crate::ws::{ClientMessage, ServerMessage};
 
 #[derive(Default)]
 pub struct Hall {
     pub rooms: HashMap<usize, HashSet<u64>>,
     pub belongs: HashMap<u64, usize>,
     pub tx2rooms: Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<ClientMessage>>>>,
+    pub tx2clients: HashMap<u64, mpsc::UnboundedSender<ServerMessage>>,
 }
 
 async fn room_join(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
@@ -28,7 +30,7 @@ async fn room_join(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppE
                 hall.belongs.insert(uid, room_id);
                 return Ok(());
             } else {
-                return Err(AppError::RoomIsFull);
+                return Err(AppError::RoomAlreadyFull);
             }
         } else {
             let mut players = HashSet::with_capacity(4);
@@ -61,14 +63,35 @@ async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
         return Err(AppError::RoomNotExist);
     } else if !hall.belongs.contains_key(&uid) || room_id != hall.belongs[&uid] {
         return Err(AppError::UserNotInRoom);
+    } else if hall.rooms[&room_id].len() != 4 {
+        return Err(AppError::RoomNotFull);
     } else {
         let (tx, mut rx) = mpsc::unbounded_channel::<ClientMessage>();
 
         let mut tx2rooms = hall.tx2rooms.write().await;
-        tx2rooms.insert(room_id, tx.clone());
+        tx2rooms.insert(room_id, tx);
         drop(tx2rooms);
 
-        todo!("spawn game task here");
+        let mut players = Vec::with_capacity(4);
+        let mut players_tx = Vec::with_capacity(4);
+        for i in hall.rooms[&room_id].iter() {
+            players.push(*i);
+            players_tx.push(hall.tx2clients[i].clone());
+        }
+
+        let players: [u64; 4] = players.try_into().unwrap();
+        let players_tx: [_; 4] = players_tx.try_into().unwrap();
+        let tx2rooms_lock = hall.tx2rooms.clone();
+        tokio::spawn(async move {
+            let mut game = game::Game::new(players, players_tx);
+            while let Some(msg) = rx.recv().await {
+                if game.handle_message(msg, uid) {
+                    break;
+                }
+            }
+            let mut tx2rooms = tx2rooms_lock.write().await;
+            tx2rooms.remove(&room_id);
+        });
 
         return Ok(());
     }
@@ -92,7 +115,7 @@ pub async fn handle_room_join(
         Err(AppError::RoomNotExist) => {
             return (http::StatusCode::NOT_FOUND, "room not exist").into_response();
         }
-        Err(AppError::RoomIsFull) => {
+        Err(AppError::RoomAlreadyFull) => {
             return (http::StatusCode::CONFLICT, "room is full").into_response();
         }
         Err(e) => {

@@ -35,14 +35,14 @@ pub enum ClientMessage {
 async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
-    let mut tx2clients = state.tx2clients.write().await;
-    if tx2clients.contains_key(&uid) {
-        let _ = ws_tx.send(ws::Message::Close(None)).await;
+    let mut hall = state.hall.write().await;
+    if hall.tx2clients.contains_key(&uid) {
+        ws_tx.send(ws::Message::Close(None)).await.unwrap();
         return;
     }
 
     let (server_tx, mut server_rx) = mpsc::unbounded_channel::<ServerMessage>();
-    tx2clients.insert(uid, server_tx.clone());
+    hall.tx2clients.insert(uid, server_tx.clone());
     let send_handle = tokio::spawn(async move {
         while let Some(msg) = server_rx.recv().await {
             let msg = serde_json::to_string(&msg).unwrap();
@@ -51,7 +51,7 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
             }
         }
     });
-    drop(tx2clients);
+    drop(hall);
 
     let hall = state.hall.clone();
     let recv_handle = tokio::spawn(async move {
@@ -75,10 +75,10 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
                     match handle_message(&*hall.read().await, &json_text).await {
                         Ok(_) => (),
                         Err(AppError::GameNotStart) => {
-                            let _ = server_tx.send(ServerMessage::GameNotStart);
+                            server_tx.send(ServerMessage::GameNotStart).unwrap();
                         }
                         Err(AppError::UserNotInRoom) => {
-                            let _ = server_tx.send(ServerMessage::UserNotInRoom);
+                            server_tx.send(ServerMessage::UserNotInRoom).unwrap();
                         }
                         Err(e) => {
                             tracing::error!("{}", e);
@@ -101,8 +101,8 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
         _ = send_handle => {},
     }
 
-    let mut tx2clients = state.tx2clients.write().await;
-    tx2clients.remove(&uid);
+    let mut hall = state.hall.write().await;
+    hall.tx2clients.remove(&uid);
 }
 
 pub async fn handle_ws(

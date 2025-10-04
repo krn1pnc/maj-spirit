@@ -36,7 +36,10 @@ pub enum AppError {
     RoomNotExist,
 
     #[error("")]
-    RoomIsFull,
+    RoomAlreadyFull,
+
+    #[error("")]
+    RoomNotFull,
 
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),

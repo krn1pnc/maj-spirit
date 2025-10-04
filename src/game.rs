@@ -71,14 +71,14 @@ impl Stack {
     }
 }
 
-struct Round {
+pub struct Round {
     stack: Stack,
     current_player: usize,
     players_cards: [Cards; 4],
 }
 
 impl Round {
-    fn new(host: usize) -> Round {
+    pub fn new(host: usize) -> Round {
         let mut stack = Stack::random();
         let mut players_cards = [Cards::default(); 4];
         for _ in 0..13 {
@@ -95,7 +95,7 @@ impl Round {
     }
 }
 
-struct Game {
+pub struct Game {
     round: Round,
     round_id: usize,
     players: [u64; 4],
@@ -104,6 +104,16 @@ struct Game {
 }
 
 impl Game {
+    pub fn new(players: [u64; 4], players_tx: [mpsc::UnboundedSender<ServerMessage>; 4]) -> Game {
+        return Game {
+            round: Round::new(0),
+            round_id: 0,
+            players,
+            players_score: [0; 4],
+            players_tx,
+        };
+    }
+
     fn send(&self, player: usize, msg: ServerMessage) {
         self.players_tx[player].send(msg).unwrap();
     }
@@ -116,13 +126,13 @@ impl Game {
 
     fn game_end(&mut self) {}
 
-    fn next_round(&mut self) {
+    fn next_round(&mut self) -> bool {
         self.round_id += 1;
 
         // check game end
         if self.round_id == 4 {
             self.game_end();
-            return;
+            return true;
         }
 
         self.round = Round::new(self.round_id);
@@ -135,14 +145,16 @@ impl Game {
                 )),
             );
         }
+
+        return false;
     }
 
-    fn tie(&mut self) {
+    fn tie(&mut self) -> bool {
         self.broadcast(ServerMessage::Tie);
-        self.next_round();
+        return self.next_round();
     }
 
-    fn win_one(&mut self, win_player: usize, lose_player: usize) {
+    fn win_one(&mut self, win_player: usize, lose_player: usize) -> bool {
         // process score change
         self.players_score[win_player] += 1;
         self.players_score[lose_player] -= 1;
@@ -154,10 +166,10 @@ impl Game {
         )));
 
         // prepare next round / end game
-        self.next_round();
+        return self.next_round();
     }
 
-    fn win_all(&mut self, win_player: usize) {
+    fn win_all(&mut self, win_player: usize) -> bool {
         self.players_score[win_player] += 3;
         for i in 0..4 {
             if i != win_player {
@@ -165,10 +177,10 @@ impl Game {
             }
         }
         self.broadcast(ServerMessage::WinAll(self.players[win_player]));
-        self.next_round();
+        return self.next_round();
     }
 
-    fn handle_message(&mut self, msg: ClientMessage, uid: u64) {
+    pub fn handle_message(&mut self, msg: ClientMessage, uid: u64) -> bool {
         let mut current_player = None;
         for i in 0..4 {
             if self.players[i] == uid {
@@ -180,7 +192,7 @@ impl Game {
             self.players_tx[current_player as usize]
                 .send(ServerMessage::NotCurrentPlayer)
                 .unwrap();
-            return;
+            return false;
         }
 
         let ClientMessage::Discard(card) = msg;
@@ -195,15 +207,13 @@ impl Game {
         for i in 1..3 {
             let check_player = (current_player + i) % 4;
             if WIN_DFA.check(self.round.players_cards[check_player].copy_insert(card)) {
-                self.win_one(check_player, current_player);
-                return;
+                return self.win_one(check_player, current_player);
             }
         }
 
         // check tie
         if self.round.stack.next == 136 {
-            self.tie();
-            return;
+            return self.tie();
         }
 
         // get next card
@@ -213,12 +223,12 @@ impl Game {
 
         // check win all
         if WIN_DFA.check(self.round.players_cards[next_player]) {
-            self.win_all(next_player);
-            return;
+            return self.win_all(next_player);
         }
 
         // maintain current_player
         self.round.current_player = next_player;
+        return false;
     }
 }
 
