@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::ops::{Deref, DerefMut};
 
 use rand::seq::SliceRandom;
@@ -32,6 +33,18 @@ impl Default for Cards {
     }
 }
 
+impl Display for Cards {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut res = String::with_capacity(14);
+        for i in 0..34 {
+            for _ in 0..self[i] {
+                res.push(Cards::card_name(i as u8));
+            }
+        }
+        return write!(f, "{}", res);
+    }
+}
+
 impl Cards {
     fn copy_insert(&self, card: u8) -> Cards {
         let mut res = self.clone();
@@ -43,6 +56,18 @@ impl Cards {
     }
     fn delete(&mut self, card: u8) {
         self[card as usize] -= 1;
+    }
+    pub fn card_name(card: u8) -> char {
+        return "壹贰叁肆伍陆柒捌玖一二三四五六七八九123456789东南西北白发中"
+            .chars()
+            .nth(card as usize)
+            .unwrap();
+    }
+    pub fn card_id(name: char) -> u8 {
+        return "壹贰叁肆伍陆柒捌玖一二三四五六七八九123456789东南西北白发中"
+            .chars()
+            .position(|x| x == name)
+            .unwrap() as u8;
     }
 }
 
@@ -202,6 +227,12 @@ impl Game {
         }
 
         let ClientMessage::Discard(card) = msg;
+
+        // check if the card can be discard
+        if self.round.players_cards[current_player][card as usize] == 0 {
+            self.send(current_player, ServerMessage::NotHaveCard);
+            return false;
+        }
 
         // broadcast discard
         self.broadcast(ServerMessage::Discard((current_player as u64, card)));

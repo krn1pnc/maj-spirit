@@ -17,12 +17,16 @@ deadpool-sqlite = "0.12.1"
 futures-util = "0.3.31"
 hex = "0.4.3"
 jsonwebtoken = { version = "10.0.0", features = ["rust_crypto"] }
+nyquest = { version = "0.3.0", features = ["blocking"] }
+nyquest-preset = { version = "0.3.0", features = ["blocking"] }
 rand = "0.9.2"
+rpassword = "7.4.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_bytes = "0.11.19"
 serde_json = "1.0.145"
 sha2 = "0.10.9"
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "net", "sync"] }
+tokio-tungstenite = "0.28.0"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.20"

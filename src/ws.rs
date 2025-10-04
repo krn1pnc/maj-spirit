@@ -19,6 +19,7 @@ pub enum ServerMessage {
     UserNotInRoom,
     NotCurrentPlayer,
     GetCard(u8),
+    NotHaveCard,
     Discard((u64, u8)),
     RoundStart((u64, Cards)),
     WinAll(u64),
@@ -84,7 +85,6 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
                         }
                         Err(e) => {
                             tracing::error!("{}", e);
-                            break;
                         }
                     }
                 }

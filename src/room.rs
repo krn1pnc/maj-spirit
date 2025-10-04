@@ -72,8 +72,8 @@ async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
         let mut players_tx = Vec::with_capacity(4);
         for i in hall.rooms[&room_id].iter() {
             players.push(*i);
-            if let Some(tx) = hall.tx2clients.get(i) {
-                players_tx.push(tx.clone());
+            if let Some(player_tx) = hall.tx2clients.get(i) {
+                players_tx.push(player_tx.clone());
             } else {
                 return Err(AppError::UserNotConnected);
             }
@@ -157,6 +157,15 @@ pub async fn handle_room_start(
     let mut hall = state.hall.write().await;
     match room_start(&mut hall, room_id, uid).await {
         Ok(_) => return http::StatusCode::OK.into_response(),
+        Err(AppError::RoomNotExist) => {
+            return (http::StatusCode::CONFLICT, "room not exist").into_response();
+        }
+        Err(AppError::UserNotInRoom) => {
+            return (http::StatusCode::CONFLICT, "user not in room").into_response();
+        }
+        Err(AppError::RoomNotFull) => {
+            return (http::StatusCode::CONFLICT, "room not full").into_response();
+        }
         Err(AppError::UserNotConnected) => {
             return (http::StatusCode::CONFLICT, "user not connected").into_response();
         }
