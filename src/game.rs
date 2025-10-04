@@ -1,7 +1,14 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
-#[derive(Clone, Copy)]
-struct Cards {
+use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+
+use crate::ws::{ClientMessage, ServerMessage};
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct Cards {
+    #[serde(with = "serde_bytes")]
     m: [u8; 34],
 }
 
@@ -13,11 +20,213 @@ impl Deref for Cards {
     }
 }
 
+impl DerefMut for Cards {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        return &mut self.m;
+    }
+}
+
+impl Default for Cards {
+    fn default() -> Self {
+        Self { m: [0; 34] }
+    }
+}
+
+impl Cards {
+    fn copy_insert(&self, card: u8) -> Cards {
+        let mut res = self.clone();
+        res[card as usize] += 1;
+        return res;
+    }
+    fn insert(&mut self, card: u8) {
+        self[card as usize] += 1;
+    }
+    fn delete(&mut self, card: u8) {
+        self[card as usize] -= 1;
+    }
+}
+
+struct Stack {
+    stack: [u8; 136],
+    next: usize,
+}
+
+impl Stack {
+    fn random() -> Stack {
+        let mut stack = [0 as u8; 136];
+        for i in 0..34 {
+            for j in 0..4 {
+                stack[i * 4 + j] = i as u8;
+            }
+        }
+        stack.shuffle(&mut rand::rng());
+        return Stack {
+            stack: stack,
+            next: 0,
+        };
+    }
+    fn next(&mut self) -> u8 {
+        self.next += 1;
+        return self.stack[self.next - 1];
+    }
+}
+
+struct Round {
+    stack: Stack,
+    current_player: usize,
+    players_cards: [Cards; 4],
+}
+
+impl Round {
+    fn new(host: usize) -> Round {
+        let mut stack = Stack::random();
+        let mut players_cards = [Cards::default(); 4];
+        for _ in 0..13 {
+            for i in 0..4 {
+                players_cards[i].insert(stack.next());
+            }
+        }
+        players_cards[host].insert(stack.next());
+        return Round {
+            stack,
+            current_player: host,
+            players_cards,
+        };
+    }
+}
+
+struct Game {
+    round: Round,
+    round_id: usize,
+    players: [u64; 4],
+    players_score: [u64; 4],
+    players_tx: [mpsc::UnboundedSender<ServerMessage>; 4],
+}
+
+impl Game {
+    fn send(&self, player: usize, msg: ServerMessage) {
+        self.players_tx[player].send(msg).unwrap();
+    }
+
+    fn broadcast(&self, msg: ServerMessage) {
+        for j in 0..4 {
+            self.send(j, msg);
+        }
+    }
+
+    fn game_end(&mut self) {}
+
+    fn next_round(&mut self) {
+        self.round_id += 1;
+
+        // check game end
+        if self.round_id == 4 {
+            self.game_end();
+            return;
+        }
+
+        self.round = Round::new(self.round_id);
+        for i in 0..4 {
+            self.send(
+                i,
+                ServerMessage::RoundStart((
+                    self.players[self.round_id],
+                    self.round.players_cards[i],
+                )),
+            );
+        }
+    }
+
+    fn tie(&mut self) {
+        self.broadcast(ServerMessage::Tie);
+        self.next_round();
+    }
+
+    fn win_one(&mut self, win_player: usize, lose_player: usize) {
+        // process score change
+        self.players_score[win_player] += 1;
+        self.players_score[lose_player] -= 1;
+
+        // broadcast win message
+        self.broadcast(ServerMessage::WinOne((
+            self.players[win_player],
+            self.players[lose_player],
+        )));
+
+        // prepare next round / end game
+        self.next_round();
+    }
+
+    fn win_all(&mut self, win_player: usize) {
+        self.players_score[win_player] += 3;
+        for i in 0..4 {
+            if i != win_player {
+                self.players_score[i] -= 1;
+            }
+        }
+        self.broadcast(ServerMessage::WinAll(self.players[win_player]));
+        self.next_round();
+    }
+
+    fn handle_message(&mut self, msg: ClientMessage, uid: u64) {
+        let mut current_player = None;
+        for i in 0..4 {
+            if self.players[i] == uid {
+                current_player = Some(i);
+            }
+        }
+        let current_player = current_player.unwrap();
+        if current_player != self.round.current_player {
+            self.players_tx[current_player as usize]
+                .send(ServerMessage::NotCurrentPlayer)
+                .unwrap();
+            return;
+        }
+
+        let ClientMessage::Discard(card) = msg;
+
+        // broadcast discard
+        self.broadcast(ServerMessage::Discard((current_player as u64, card)));
+
+        // discard
+        self.round.players_cards[current_player].delete(card);
+
+        // check win one
+        for i in 1..3 {
+            let check_player = (current_player + i) % 4;
+            if WIN_DFA.check(self.round.players_cards[check_player].copy_insert(card)) {
+                self.win_one(check_player, current_player);
+                return;
+            }
+        }
+
+        // check tie
+        if self.round.stack.next == 136 {
+            self.tie();
+            return;
+        }
+
+        // get next card
+        let next_card = self.round.stack.next();
+        let next_player = (self.round.current_player + 1) % 4;
+        self.round.players_cards[next_player].insert(next_card);
+
+        // check win all
+        if WIN_DFA.check(self.round.players_cards[next_player]) {
+            self.win_all(next_player);
+            return;
+        }
+
+        // maintain current_player
+        self.round.current_player = next_player;
+    }
+}
+
 struct WinDfa {
     trans: [[u16; 5]; 568],
 }
 
-static win_dfa: WinDfa = WinDfa::new();
+static WIN_DFA: WinDfa = WinDfa::new();
 
 impl WinDfa {
     fn check(&self, cards: Cards) -> bool {

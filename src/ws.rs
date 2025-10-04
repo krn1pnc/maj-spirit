@@ -8,20 +8,28 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::error::AppError;
+use crate::game::Cards;
 use crate::room::Hall;
 use crate::state::AppState;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 #[serde(tag = "tag", content = "content")]
 pub enum ServerMessage {
     GameNotStart,
     UserNotInRoom,
+    NotCurrentPlayer,
+    GetCard(u8),
+    Discard((u64, u8)),
+    RoundStart((u64, Cards)),
+    WinAll(u64),
+    WinOne((u64, u64)),
+    Tie,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "tag", content = "content")]
 pub enum ClientMessage {
-    Hello,
+    Discard(u8),
 }
 
 async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
