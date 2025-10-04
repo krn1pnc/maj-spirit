@@ -235,7 +235,7 @@ impl Game {
         }
 
         // broadcast discard
-        self.broadcast(ServerMessage::Discard((current_player as u64, card)));
+        self.broadcast(ServerMessage::Discard((self.players[current_player], card)));
 
         // discard
         self.round.players_cards[current_player].delete(card);
