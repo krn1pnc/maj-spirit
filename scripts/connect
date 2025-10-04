@@ -1,0 +1,7 @@
+#!/bin/bash
+
+export JWT=`curl -X POST -d "username=${1}&password=1" http://127.0.0.1:3000/login`
+
+curl -X POST -H "Authorization: Bearer ${JWT}" http://127.0.0.1:3000/room/1000/join
+
+websocat ws://127.0.0.1:3000/ws -H "Authorization: Bearer ${JWT}"

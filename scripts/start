@@ -1,0 +1,3 @@
+#!/bin/bash
+
+curl -X POST -H "Authorization: Bearer `curl -X POST -d "username=${1}&password=1" http://127.0.0.1:3000/login`" http://127.0.0.1:3000/room/1000/start
