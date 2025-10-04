@@ -12,7 +12,7 @@ use crate::game::Cards;
 use crate::room::Hall;
 use crate::state::AppState;
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(tag = "tag", content = "content")]
 pub enum ServerMessage {
     GameNotStart,
@@ -26,7 +26,7 @@ pub enum ServerMessage {
     Tie,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "tag", content = "content")]
 pub enum ClientMessage {
     Discard(u8),
@@ -46,6 +46,7 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
     let send_handle = tokio::spawn(async move {
         while let Some(msg) = server_rx.recv().await {
             let msg = serde_json::to_string(&msg).unwrap();
+            tracing::info!("send {} to {}", msg, uid);
             if ws_tx.send(ws::Message::Text(msg.into())).await.is_err() {
                 break;
             }
@@ -59,7 +60,7 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
             let msg = serde_json::from_str(json_text)?;
             if let Some(room_id) = hall.belongs.get(&uid) {
                 if let Some(tx2room) = hall.tx2rooms.read().await.get(&room_id) {
-                    tx2room.send(msg)?
+                    tx2room.send((uid, msg))?
                 } else {
                     return Err(AppError::GameNotStart);
                 }
@@ -72,6 +73,7 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
         while let Some(msg) = ws_rx.next().await {
             match msg {
                 Ok(ws::Message::Text(json_text)) => {
+                    tracing::info!("recv {} from {}", json_text, uid);
                     match handle_message(&*hall.read().await, &json_text).await {
                         Ok(_) => (),
                         Err(AppError::GameNotStart) => {

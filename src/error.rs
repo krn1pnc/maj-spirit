@@ -51,5 +51,7 @@ pub enum AppError {
     GameNotStart,
 
     #[error("mpsc send error: {0}")]
-    ClientMessageSendError(#[from] tokio::sync::mpsc::error::SendError<crate::ws::ClientMessage>),
+    ClientMessageSendError(
+        #[from] tokio::sync::mpsc::error::SendError<(u64, crate::ws::ClientMessage)>,
+    ),
 }

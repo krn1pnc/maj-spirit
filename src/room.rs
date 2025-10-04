@@ -16,7 +16,7 @@ use crate::ws::{ClientMessage, ServerMessage};
 pub struct Hall {
     pub rooms: HashMap<usize, HashSet<u64>>,
     pub belongs: HashMap<u64, usize>,
-    pub tx2rooms: Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<ClientMessage>>>>,
+    pub tx2rooms: Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<(u64, ClientMessage)>>>>,
     pub tx2clients: HashMap<u64, mpsc::UnboundedSender<ServerMessage>>,
 }
 
@@ -66,7 +66,7 @@ async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
     } else if hall.rooms[&room_id].len() != 4 {
         return Err(AppError::RoomNotFull);
     } else {
-        let (tx, mut rx) = mpsc::unbounded_channel::<ClientMessage>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<(u64, ClientMessage)>();
 
         let mut players = Vec::with_capacity(4);
         let mut players_tx = Vec::with_capacity(4);
@@ -84,8 +84,8 @@ async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
         let tx2rooms_lock = hall.tx2rooms.clone();
         tokio::spawn(async move {
             let mut game = game::Game::new(players, players_tx);
-            while let Some(msg) = rx.recv().await {
-                if game.handle_message(msg, uid) {
+            while let Some((msg_uid, msg)) = rx.recv().await {
+                if game.handle_message(msg, msg_uid) {
                     break;
                 }
             }

@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::ws::{ClientMessage, ServerMessage};
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Cards {
     #[serde(with = "serde_bytes")]
     m: [u8; 34],
@@ -105,13 +105,15 @@ pub struct Game {
 
 impl Game {
     pub fn new(players: [u64; 4], players_tx: [mpsc::UnboundedSender<ServerMessage>; 4]) -> Game {
-        return Game {
+        let game = Game {
             round: Round::new(0),
             round_id: 0,
             players,
             players_score: [0; 4],
             players_tx,
         };
+        game.round_start();
+        return game;
     }
 
     fn send(&self, player: usize, msg: ServerMessage) {
@@ -126,6 +128,18 @@ impl Game {
 
     fn game_end(&mut self) {}
 
+    fn round_start(&self) {
+        for i in 0..4 {
+            self.send(
+                i,
+                ServerMessage::RoundStart((
+                    self.players[self.round_id],
+                    self.round.players_cards[i],
+                )),
+            );
+        }
+    }
+
     fn next_round(&mut self) -> bool {
         self.round_id += 1;
 
@@ -136,16 +150,7 @@ impl Game {
         }
 
         self.round = Round::new(self.round_id);
-        for i in 0..4 {
-            self.send(
-                i,
-                ServerMessage::RoundStart((
-                    self.players[self.round_id],
-                    self.round.players_cards[i],
-                )),
-            );
-        }
-
+        self.round_start();
         return false;
     }
 
@@ -181,6 +186,7 @@ impl Game {
     }
 
     pub fn handle_message(&mut self, msg: ClientMessage, uid: u64) -> bool {
+        tracing::info!("handle msg {:?} from {}", msg, uid);
         let mut current_player = None;
         for i in 0..4 {
             if self.players[i] == uid {
