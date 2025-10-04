@@ -68,15 +68,15 @@ async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
     } else {
         let (tx, mut rx) = mpsc::unbounded_channel::<ClientMessage>();
 
-        let mut tx2rooms = hall.tx2rooms.write().await;
-        tx2rooms.insert(room_id, tx);
-        drop(tx2rooms);
-
         let mut players = Vec::with_capacity(4);
         let mut players_tx = Vec::with_capacity(4);
         for i in hall.rooms[&room_id].iter() {
             players.push(*i);
-            players_tx.push(hall.tx2clients[i].clone());
+            if let Some(tx) = hall.tx2clients.get(i) {
+                players_tx.push(tx.clone());
+            } else {
+                return Err(AppError::UserNotConnected);
+            }
         }
 
         let players: [u64; 4] = players.try_into().unwrap();
@@ -92,6 +92,9 @@ async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
             let mut tx2rooms = tx2rooms_lock.write().await;
             tx2rooms.remove(&room_id);
         });
+
+        let mut tx2rooms = hall.tx2rooms.write().await;
+        tx2rooms.insert(room_id, tx);
 
         return Ok(());
     }
@@ -154,6 +157,9 @@ pub async fn handle_room_start(
     let mut hall = state.hall.write().await;
     match room_start(&mut hall, room_id, uid).await {
         Ok(_) => return http::StatusCode::OK.into_response(),
+        Err(AppError::UserNotConnected) => {
+            return (http::StatusCode::CONFLICT, "user not connected").into_response();
+        }
         Err(e) => {
             tracing::error!("{}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();

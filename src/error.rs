@@ -41,6 +41,9 @@ pub enum AppError {
     #[error("")]
     RoomNotFull,
 
+    #[error("")]
+    UserNotConnected,
+
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 
