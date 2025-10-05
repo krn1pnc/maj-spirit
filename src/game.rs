@@ -124,16 +124,22 @@ pub struct Game {
     round: Round,
     round_id: usize,
     players: [u64; 4],
+    players_name: [String; 4],
     players_score: [u64; 4],
     players_tx: [mpsc::UnboundedSender<ServerMessage>; 4],
 }
 
 impl Game {
-    pub fn new(players: [u64; 4], players_tx: [mpsc::UnboundedSender<ServerMessage>; 4]) -> Game {
+    pub fn new(
+        players: [u64; 4],
+        players_name: [String; 4],
+        players_tx: [mpsc::UnboundedSender<ServerMessage>; 4],
+    ) -> Game {
         let game = Game {
             round: Round::new(0),
             round_id: 0,
             players,
+            players_name,
             players_score: [0; 4],
             players_tx,
         };
@@ -147,7 +153,7 @@ impl Game {
 
     fn broadcast(&self, msg: ServerMessage) {
         for j in 0..4 {
-            self.send(j, msg);
+            self.send(j, msg.clone());
         }
     }
 
@@ -158,7 +164,7 @@ impl Game {
             self.send(
                 i,
                 ServerMessage::RoundStart((
-                    self.players[self.round_id],
+                    self.players_name[self.round.current_player].clone(),
                     self.round.players_cards[i],
                 )),
             );
@@ -191,8 +197,8 @@ impl Game {
 
         // broadcast win message
         self.broadcast(ServerMessage::WinOne((
-            self.players[win_player],
-            self.players[lose_player],
+            self.players_name[win_player].clone(),
+            self.players_name[lose_player].clone(),
         )));
 
         // prepare next round / end game
@@ -206,7 +212,7 @@ impl Game {
                 self.players_score[i] -= 1;
             }
         }
-        self.broadcast(ServerMessage::WinAll(self.players[win_player]));
+        self.broadcast(ServerMessage::WinAll(self.players_name[win_player].clone()));
         return self.next_round();
     }
 
@@ -235,7 +241,10 @@ impl Game {
         }
 
         // broadcast discard
-        self.broadcast(ServerMessage::Discard((self.players[current_player], card)));
+        self.broadcast(ServerMessage::Discard((
+            self.players_name[current_player].clone(),
+            card,
+        )));
 
         // discard
         self.round.players_cards[current_player].delete(card);

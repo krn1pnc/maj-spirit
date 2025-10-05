@@ -5,8 +5,10 @@ use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http;
 use axum::response::IntoResponse;
+use deadpool_sqlite::Pool;
 use tokio::sync::{RwLock, mpsc};
 
+use crate::db::get_username;
 use crate::error::AppError;
 use crate::game;
 use crate::state::AppState;
@@ -58,7 +60,12 @@ async fn room_leave(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
     }
 }
 
-async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
+async fn room_start(
+    db_pool: &Pool,
+    hall: &mut Hall,
+    room_id: usize,
+    uid: u64,
+) -> Result<(), AppError> {
     if !hall.rooms.contains_key(&room_id) {
         return Err(AppError::RoomNotExist);
     } else if !hall.belongs.contains_key(&uid) || room_id != hall.belongs[&uid] {
@@ -69,9 +76,11 @@ async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
         let (tx, mut rx) = mpsc::unbounded_channel::<(u64, ClientMessage)>();
 
         let mut players = Vec::with_capacity(4);
+        let mut players_name = Vec::with_capacity(4);
         let mut players_tx = Vec::with_capacity(4);
         for i in hall.rooms[&room_id].iter() {
             players.push(*i);
+            players_name.push(get_username(db_pool, *i).await.unwrap());
             if let Some(player_tx) = hall.tx2clients.get(i) {
                 players_tx.push(player_tx.clone());
             } else {
@@ -80,10 +89,11 @@ async fn room_start(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
         }
 
         let players: [u64; 4] = players.try_into().unwrap();
+        let players_name: [String; 4] = players_name.try_into().unwrap();
         let players_tx: [_; 4] = players_tx.try_into().unwrap();
         let tx2rooms_lock = hall.tx2rooms.clone();
         tokio::spawn(async move {
-            let mut game = game::Game::new(players, players_tx);
+            let mut game = game::Game::new(players, players_name, players_tx);
             while let Some((msg_uid, msg)) = rx.recv().await {
                 if game.handle_message(msg, msg_uid) {
                     break;
@@ -155,7 +165,7 @@ pub async fn handle_room_start(
     Extension(uid): Extension<u64>,
 ) -> http::Response<Body> {
     let mut hall = state.hall.write().await;
-    match room_start(&mut hall, room_id, uid).await {
+    match room_start(&state.db_pool, &mut hall, room_id, uid).await {
         Ok(_) => return http::StatusCode::OK.into_response(),
         Err(AppError::RoomNotExist) => {
             return (http::StatusCode::CONFLICT, "room not exist").into_response();

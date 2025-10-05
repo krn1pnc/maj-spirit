@@ -12,7 +12,7 @@ use crate::game::Cards;
 use crate::room::Hall;
 use crate::state::AppState;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "tag", content = "content")]
 pub enum ServerMessage {
     GameNotStart,
@@ -20,10 +20,10 @@ pub enum ServerMessage {
     NotCurrentPlayer,
     GetCard(u8),
     NotHaveCard,
-    Discard((u64, u8)),
-    RoundStart((u64, Cards)),
-    WinAll(u64),
-    WinOne((u64, u64)),
+    Discard((String, u8)),
+    RoundStart((String, Cards)),
+    WinAll(String),
+    WinOne((String, String)),
     Tie,
 }
 
