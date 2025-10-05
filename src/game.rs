@@ -266,6 +266,7 @@ impl Game {
         let next_card = self.round.stack.next();
         let next_player = (self.round.current_player + 1) % 4;
         self.round.players_cards[next_player].insert(next_card);
+        self.send(next_player, ServerMessage::GetCard(next_card));
 
         // check win all
         if WIN_DFA.check(self.round.players_cards[next_player]) {
