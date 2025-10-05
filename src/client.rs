@@ -28,10 +28,13 @@ async fn main() {
 
     let client = ClientBuilder::default().build_blocking().unwrap();
 
-    // prompt("请输入服务器 URL（如 http://127.0.0.1:3000/）：");
-    // let base_url = read_line().trim().to_owned();
+    prompt("请输入服务器地址，直接回车默认为 http://127.0.0.1:3000/：");
+    let mut addr = read_line().trim().to_owned();
 
-    let addr = "127.0.0.1:3000";
+    if addr == "" {
+        addr = String::from("127.0.0.1:3000");
+    }
+
     let base_url = format!("http://{}", addr);
     let ws_url = format!("ws://{}/ws", addr);
 
