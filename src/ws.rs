@@ -47,8 +47,9 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
     }
     let send_handle = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
+            tracing::info!("send {:?} to {}", msg, uid);
+
             let msg = serde_json::to_string(&msg).unwrap();
-            tracing::info!("send {} to {}", msg, uid);
             if ws_tx.send(ws::Message::Text(msg.into())).await.is_err() {
                 break;
             }
@@ -62,10 +63,7 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
             let hall = state.hall.read().await;
             let tx2games = state.tx2games.read().await;
             if let Some(room_id) = hall.belongs.get(&uid) {
-                match tx2games.send(room_id, msg) {
-                    Err(AppError::TxNotExist) => return Err(AppError::GameNotStart),
-                    res => return res,
-                }
+                return tx2games.send(room_id, msg);
             } else {
                 return Err(AppError::UserNotInRoom);
             }
@@ -75,9 +73,9 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
             match msg {
                 Ok(ws::Message::Text(json_text)) => {
                     tracing::info!("recv {} from {}", json_text, uid);
+
                     match handle_message(&json_text).await {
-                        Ok(_) => (),
-                        Err(AppError::GameNotStart) => {
+                        Err(AppError::TxNotExist) => {
                             tx.send(ServerMessage::GameNotStart).unwrap();
                         }
                         Err(AppError::UserNotInRoom) => {
@@ -86,6 +84,7 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
                         Err(e) => {
                             tracing::error!("{}", e);
                         }
+                        _ => (),
                     }
                 }
                 Ok(ws::Message::Close(_)) => break,

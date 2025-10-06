@@ -47,9 +47,6 @@ pub enum AppError {
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("")]
-    GameNotStart,
-
     #[error("mpsc send error: {0}")]
     MpscSend(String),
 }
