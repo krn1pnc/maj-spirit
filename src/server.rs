@@ -13,7 +13,10 @@ use maj_spirit::{
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_file(true)
+        .with_line_number(true)
+        .init();
 
     let db_cfg = Config::new(DATABASE_FILE);
     let db_pool = Arc::new(db_cfg.create_pool(Runtime::Tokio1).unwrap());
