@@ -6,6 +6,7 @@ pub mod game;
 pub mod jwt;
 pub mod room;
 pub mod state;
+pub mod txmanager;
 pub mod ws;
 
 pub use auth::{handle_hello, handle_login, handle_register, jwt_auth};

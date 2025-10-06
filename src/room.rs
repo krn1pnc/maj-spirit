@@ -1,28 +1,25 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http;
 use axum::response::IntoResponse;
-use deadpool_sqlite::Pool;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::mpsc;
 
 use crate::db::get_username;
 use crate::error::AppError;
 use crate::game;
 use crate::state::AppState;
-use crate::ws::{ClientMessage, ServerMessage};
+use crate::ws::ClientMessage;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Hall {
     pub rooms: HashMap<usize, HashSet<u64>>,
     pub belongs: HashMap<u64, usize>,
-    pub tx2rooms: Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<(u64, ClientMessage)>>>>,
-    pub tx2clients: HashMap<u64, mpsc::UnboundedSender<ServerMessage>>,
 }
 
-async fn room_join(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
+async fn room_join(state: &AppState, room_id: usize, uid: u64) -> Result<(), AppError> {
+    let mut hall = state.hall.write().await;
     if hall.belongs.contains_key(&uid) {
         return Err(AppError::UserAlreadyInRoom(hall.belongs[&uid]));
     } else {
@@ -44,7 +41,8 @@ async fn room_join(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppE
     }
 }
 
-async fn room_leave(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), AppError> {
+async fn room_leave(state: &AppState, room_id: usize, uid: u64) -> Result<(), AppError> {
+    let mut hall = state.hall.write().await;
     if !hall.rooms.contains_key(&room_id) {
         return Err(AppError::RoomNotExist);
     } else if !hall.belongs.contains_key(&uid) || room_id != hall.belongs[&uid] {
@@ -60,12 +58,8 @@ async fn room_leave(hall: &mut Hall, room_id: usize, uid: u64) -> Result<(), App
     }
 }
 
-async fn room_start(
-    db_pool: &Pool,
-    hall: &mut Hall,
-    room_id: usize,
-    uid: u64,
-) -> Result<(), AppError> {
+async fn room_start(state: &AppState, room_id: usize, uid: u64) -> Result<(), AppError> {
+    let hall = state.hall.read().await;
     if !hall.rooms.contains_key(&room_id) {
         return Err(AppError::RoomNotExist);
     } else if !hall.belongs.contains_key(&uid) || room_id != hall.belongs[&uid] {
@@ -73,37 +67,34 @@ async fn room_start(
     } else if hall.rooms[&room_id].len() != 4 {
         return Err(AppError::RoomNotFull);
     } else {
-        let (tx, mut rx) = mpsc::unbounded_channel::<(u64, ClientMessage)>();
-
         let mut players = Vec::with_capacity(4);
         let mut players_name = Vec::with_capacity(4);
-        let mut players_tx = Vec::with_capacity(4);
         for i in hall.rooms[&room_id].iter() {
-            players.push(*i);
-            players_name.push(get_username(db_pool, *i).await.unwrap());
-            if let Some(player_tx) = hall.tx2clients.get(i) {
-                players_tx.push(player_tx.clone());
-            } else {
-                return Err(AppError::UserNotConnected);
-            }
+            let uid = *i;
+            let username = get_username(&state.db_pool, uid).await?;
+            players.push(uid);
+            players_name.push(username);
         }
+
+        let (tx, mut rx) = mpsc::unbounded_channel::<(u64, ClientMessage)>();
 
         let players: [u64; 4] = players.try_into().unwrap();
         let players_name: [String; 4] = players_name.try_into().unwrap();
-        let players_tx: [_; 4] = players_tx.try_into().unwrap();
-        let tx2rooms_lock = hall.tx2rooms.clone();
+        let conn_lock = state.tx2clients.clone();
+        let tx2rooms_lock = state.tx2games.clone();
         tokio::spawn(async move {
-            let mut game = game::Game::new(players, players_name, players_tx);
+            let mut game = game::Game::new(players, players_name, conn_lock);
+            game.round_start().await;
             while let Some((msg_uid, msg)) = rx.recv().await {
-                if game.handle_message(msg, msg_uid) {
+                if game.handle_message(msg, msg_uid).await {
                     break;
                 }
             }
             let mut tx2rooms = tx2rooms_lock.write().await;
-            tx2rooms.remove(&room_id);
+            tx2rooms.delete(&room_id);
         });
 
-        let mut tx2rooms = hall.tx2rooms.write().await;
+        let mut tx2rooms = state.tx2games.write().await;
         tx2rooms.insert(room_id, tx);
 
         return Ok(());
@@ -115,8 +106,7 @@ pub async fn handle_room_join(
     State(state): State<AppState>,
     Extension(uid): Extension<u64>,
 ) -> http::Response<Body> {
-    let mut hall = state.hall.write().await;
-    match room_join(&mut hall, room_id, uid).await {
+    match room_join(&state, room_id, uid).await {
         Ok(_) => return http::StatusCode::OK.into_response(),
         Err(AppError::UserAlreadyInRoom(room_id)) => {
             return (
@@ -143,8 +133,7 @@ pub async fn handle_room_leave(
     State(state): State<AppState>,
     Extension(uid): Extension<u64>,
 ) -> http::Response<Body> {
-    let mut hall = state.hall.write().await;
-    match room_leave(&mut hall, room_id, uid).await {
+    match room_leave(&state, room_id, uid).await {
         Ok(_) => return http::StatusCode::OK.into_response(),
         Err(AppError::RoomNotExist) => {
             return (http::StatusCode::NOT_FOUND, "room not exist").into_response();
@@ -164,8 +153,7 @@ pub async fn handle_room_start(
     State(state): State<AppState>,
     Extension(uid): Extension<u64>,
 ) -> http::Response<Body> {
-    let mut hall = state.hall.write().await;
-    match room_start(&state.db_pool, &mut hall, room_id, uid).await {
+    match room_start(&state, room_id, uid).await {
         Ok(_) => return http::StatusCode::OK.into_response(),
         Err(AppError::RoomNotExist) => {
             return (http::StatusCode::CONFLICT, "room not exist").into_response();
@@ -175,9 +163,6 @@ pub async fn handle_room_start(
         }
         Err(AppError::RoomNotFull) => {
             return (http::StatusCode::CONFLICT, "room not full").into_response();
-        }
-        Err(AppError::UserNotConnected) => {
-            return (http::StatusCode::CONFLICT, "user not connected").into_response();
         }
         Err(e) => {
             tracing::error!("{}", e);

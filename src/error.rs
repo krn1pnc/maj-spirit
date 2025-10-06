@@ -42,7 +42,7 @@ pub enum AppError {
     RoomNotFull,
 
     #[error("")]
-    UserNotConnected,
+    TxNotExist,
 
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
@@ -51,7 +51,5 @@ pub enum AppError {
     GameNotStart,
 
     #[error("mpsc send error: {0}")]
-    ClientMessageSendError(
-        #[from] tokio::sync::mpsc::error::SendError<(u64, crate::ws::ClientMessage)>,
-    ),
+    MpscSend(String),
 }

@@ -9,7 +9,6 @@ use tokio::sync::mpsc;
 
 use crate::error::AppError;
 use crate::game::Cards;
-use crate::room::Hall;
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -36,16 +35,18 @@ pub enum ClientMessage {
 async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
-    let mut hall = state.hall.write().await;
-    if hall.tx2clients.contains_key(&uid) {
-        ws_tx.send(ws::Message::Close(None)).await.unwrap();
+    let (tx, mut rx) = mpsc::unbounded_channel::<ServerMessage>();
+
+    let mut tx2clients = state.tx2clients.write().await;
+    if !tx2clients.insert(uid, tx.clone()) {
+        match ws_tx.send(ws::Message::Close(None)).await {
+            Err(e) => tracing::error!("{}", e),
+            Ok(()) => (),
+        }
         return;
     }
-
-    let (server_tx, mut server_rx) = mpsc::unbounded_channel::<ServerMessage>();
-    hall.tx2clients.insert(uid, server_tx.clone());
     let send_handle = tokio::spawn(async move {
-        while let Some(msg) = server_rx.recv().await {
+        while let Some(msg) = rx.recv().await {
             let msg = serde_json::to_string(&msg).unwrap();
             tracing::info!("send {} to {}", msg, uid);
             if ws_tx.send(ws::Message::Text(msg.into())).await.is_err() {
@@ -53,35 +54,34 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
             }
         }
     });
-    drop(hall);
+    drop(tx2clients);
 
-    let hall = state.hall.clone();
     let recv_handle = tokio::spawn(async move {
-        let handle_message = async |hall: &Hall, json_text: &str| -> Result<(), AppError> {
+        let handle_message = async |json_text: &str| -> Result<(), AppError> {
             let msg = serde_json::from_str(json_text)?;
+            let hall = state.hall.read().await;
+            let tx2games = state.tx2games.read().await;
             if let Some(room_id) = hall.belongs.get(&uid) {
-                if let Some(tx2room) = hall.tx2rooms.read().await.get(&room_id) {
-                    tx2room.send((uid, msg))?
-                } else {
-                    return Err(AppError::GameNotStart);
+                match tx2games.send(room_id, msg) {
+                    Err(AppError::TxNotExist) => return Err(AppError::GameNotStart),
+                    res => return res,
                 }
             } else {
                 return Err(AppError::UserNotInRoom);
             }
-            return Ok(());
         };
 
         while let Some(msg) = ws_rx.next().await {
             match msg {
                 Ok(ws::Message::Text(json_text)) => {
                     tracing::info!("recv {} from {}", json_text, uid);
-                    match handle_message(&*hall.read().await, &json_text).await {
+                    match handle_message(&json_text).await {
                         Ok(_) => (),
                         Err(AppError::GameNotStart) => {
-                            server_tx.send(ServerMessage::GameNotStart).unwrap();
+                            tx.send(ServerMessage::GameNotStart).unwrap();
                         }
                         Err(AppError::UserNotInRoom) => {
-                            server_tx.send(ServerMessage::UserNotInRoom).unwrap();
+                            tx.send(ServerMessage::UserNotInRoom).unwrap();
                         }
                         Err(e) => {
                             tracing::error!("{}", e);
@@ -103,8 +103,10 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
         _ = send_handle => {},
     }
 
-    let mut hall = state.hall.write().await;
-    hall.tx2clients.remove(&uid);
+    let mut tx2clients = state.tx2clients.write().await;
+    if !tx2clients.delete(&uid) {
+        tracing::error!("this should not happen");
+    }
 }
 
 pub async fn handle_ws(

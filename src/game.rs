@@ -1,10 +1,12 @@
 use std::fmt::Display;
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
+use crate::txmanager::TxManager;
 use crate::ws::{ClientMessage, ServerMessage};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -126,14 +128,14 @@ pub struct Game {
     players: [u64; 4],
     players_name: [String; 4],
     players_score: [u64; 4],
-    players_tx: [mpsc::UnboundedSender<ServerMessage>; 4],
+    conn: Arc<RwLock<TxManager<u64, ServerMessage>>>,
 }
 
 impl Game {
     pub fn new(
         players: [u64; 4],
         players_name: [String; 4],
-        players_tx: [mpsc::UnboundedSender<ServerMessage>; 4],
+        conn: Arc<RwLock<TxManager<u64, ServerMessage>>>,
     ) -> Game {
         let game = Game {
             round: Round::new(0),
@@ -141,25 +143,27 @@ impl Game {
             players,
             players_name,
             players_score: [0; 4],
-            players_tx,
+            conn,
         };
-        game.round_start();
         return game;
     }
 
-    fn send(&self, player: usize, msg: ServerMessage) {
-        self.players_tx[player].send(msg).unwrap();
+    async fn send(&self, player: usize, msg: ServerMessage) {
+        match self.conn.read().await.send(&self.players[player], msg) {
+            Err(e) => tracing::error!("{}", e),
+            Ok(_) => (),
+        }
     }
 
-    fn broadcast(&self, msg: ServerMessage) {
+    async fn broadcast(&self, msg: ServerMessage) {
         for j in 0..4 {
-            self.send(j, msg.clone());
+            self.send(j, msg.clone()).await;
         }
     }
 
     fn game_end(&mut self) {}
 
-    fn round_start(&self) {
+    pub async fn round_start(&self) {
         for i in 0..4 {
             self.send(
                 i,
@@ -167,11 +171,12 @@ impl Game {
                     self.players_name[self.round.current_player].clone(),
                     self.round.players_cards[i],
                 )),
-            );
+            )
+            .await;
         }
     }
 
-    fn next_round(&mut self) -> bool {
+    async fn next_round(&mut self) -> bool {
         self.round_id += 1;
 
         // check game end
@@ -181,16 +186,16 @@ impl Game {
         }
 
         self.round = Round::new(self.round_id);
-        self.round_start();
+        self.round_start().await;
         return false;
     }
 
-    fn tie(&mut self) -> bool {
-        self.broadcast(ServerMessage::Tie);
-        return self.next_round();
+    async fn tie(&mut self) -> bool {
+        self.broadcast(ServerMessage::Tie).await;
+        return self.next_round().await;
     }
 
-    fn win_one(&mut self, win_player: usize, lose_player: usize) -> bool {
+    async fn win_one(&mut self, win_player: usize, lose_player: usize) -> bool {
         // process score change
         self.players_score[win_player] += 1;
         self.players_score[lose_player] -= 1;
@@ -199,78 +204,80 @@ impl Game {
         self.broadcast(ServerMessage::WinOne((
             self.players_name[win_player].clone(),
             self.players_name[lose_player].clone(),
-        )));
+        )))
+        .await;
 
         // prepare next round / end game
-        return self.next_round();
+        return self.next_round().await;
     }
 
-    fn win_all(&mut self, win_player: usize) -> bool {
+    async fn win_all(&mut self, win_player: usize) -> bool {
         self.players_score[win_player] += 3;
         for i in 0..4 {
             if i != win_player {
                 self.players_score[i] -= 1;
             }
         }
-        self.broadcast(ServerMessage::WinAll(self.players_name[win_player].clone()));
-        return self.next_round();
+        self.broadcast(ServerMessage::WinAll(self.players_name[win_player].clone()))
+            .await;
+        return self.next_round().await;
     }
 
-    pub fn handle_message(&mut self, msg: ClientMessage, uid: u64) -> bool {
+    pub async fn handle_message(&mut self, msg: ClientMessage, uid: u64) -> bool {
         tracing::info!("handle msg {:?} from {}", msg, uid);
-        let mut current_player = None;
+        let mut player = None;
         for i in 0..4 {
             if self.players[i] == uid {
-                current_player = Some(i);
+                player = Some(i);
             }
         }
-        let current_player = current_player.unwrap();
-        if current_player != self.round.current_player {
-            self.players_tx[current_player as usize]
-                .send(ServerMessage::NotCurrentPlayer)
-                .unwrap();
+        let player = player.unwrap();
+        if player != self.round.current_player {
+            self.send(player, ServerMessage::NotCurrentPlayer).await;
             return false;
         }
 
         let ClientMessage::Discard(card) = msg;
 
         // check if the card can be discard
-        if self.round.players_cards[current_player][card as usize] == 0 {
-            self.send(current_player, ServerMessage::NotHaveCard);
+        if self.round.players_cards[player][card as usize] == 0 {
+            self.send(player, ServerMessage::NotHaveCard).await;
             return false;
         }
 
         // broadcast discard
         self.broadcast(ServerMessage::Discard((
-            self.players_name[current_player].clone(),
+            self.players_name[player].clone(),
             card,
-        )));
+        )))
+        .await;
 
         // discard
-        self.round.players_cards[current_player].delete(card);
+        self.round.players_cards[player].delete(card);
 
         // check win one
         for i in 1..3 {
-            let check_player = (current_player + i) % 4;
+            let check_player = (player + i) % 4;
             if WIN_DFA.check(self.round.players_cards[check_player].copy_insert(card)) {
-                return self.win_one(check_player, current_player);
+                return self.win_one(check_player, player).await;
             }
         }
 
         // check tie
         if self.round.stack.next == 136 {
-            return self.tie();
+            return self.tie().await;
         }
 
         // get next card
         let next_card = self.round.stack.next();
         let next_player = (self.round.current_player + 1) % 4;
         self.round.players_cards[next_player].insert(next_card);
-        self.send(next_player, ServerMessage::GetCard(next_card));
+        self.send(next_player, ServerMessage::GetCard(next_card))
+            .await;
 
         // check win all
         if WIN_DFA.check(self.round.players_cards[next_player]) {
-            return self.win_all(next_player);
+            return self.win_all(next_player).await;
         }
 
         // maintain current_player
