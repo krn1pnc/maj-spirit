@@ -53,10 +53,10 @@ impl Cards {
         res[card as usize] += 1;
         return res;
     }
-    fn insert(&mut self, card: u8) {
+    pub fn insert(&mut self, card: u8) {
         self[card as usize] += 1;
     }
-    fn delete(&mut self, card: u8) {
+    pub fn delete(&mut self, card: u8) {
         self[card as usize] -= 1;
     }
     pub fn card_name(card: u8) -> char {

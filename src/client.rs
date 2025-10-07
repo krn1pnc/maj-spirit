@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{io::Write, sync::Arc};
 
 use futures_util::{SinkExt, StreamExt};
 use maj_spirit::{
@@ -6,6 +6,7 @@ use maj_spirit::{
     ws::{ClientMessage, ServerMessage},
 };
 use nyquest::{ClientBuilder, blocking::Request, body_form};
+use tokio::sync::RwLock;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{Message, client::IntoClientRequest},
@@ -115,6 +116,8 @@ async fn main() {
 
     let (mut tx, mut rx) = ws_stream.split();
 
+    let current_cards = Arc::new(RwLock::new(Cards::default()));
+
     tokio::spawn(async move {
         while let Some(msg) = rx.next().await {
             if let Ok(Message::Text(msg)) = msg {
@@ -132,16 +135,41 @@ async fn main() {
                     }
                     ServerMessage::GetCard(card) => {
                         println!("你获得了：{}", Cards::card_name(card));
+                        current_cards.write().await.insert(card);
+                        println!("你的牌是：{}", current_cards.read().await);
+                        for i in 0..34 {
+                            if current_cards.read().await[i] != 0 {
+                                let msg = ClientMessage::Discard(i as u8);
+                                let msg = serde_json::to_string(&msg).unwrap();
+                                tx.send(Message::Text(msg.into())).await.unwrap();
+                                break;
+                            }
+                        }
                     }
                     ServerMessage::NotHaveCard => {
                         println!("你没有足够的牌");
                     }
                     ServerMessage::Discard((uid, card)) => {
                         println!("玩家 {} 打出了：{}", uid, Cards::card_name(card));
+                        if uid == username {
+                            current_cards.write().await.delete(card);
+                        }
                     }
                     ServerMessage::RoundStart((uid, cards)) => {
                         println!("本轮开始，玩家 {} 是庄家", uid);
                         println!("你的牌是：{}", cards);
+                        *current_cards.write().await = cards;
+
+                        if uid == username {
+                            for i in 0..34 {
+                                if current_cards.read().await[i] != 0 {
+                                    let msg = ClientMessage::Discard(i as u8);
+                                    let msg = serde_json::to_string(&msg).unwrap();
+                                    tx.send(Message::Text(msg.into())).await.unwrap();
+                                    break;
+                                }
+                            }
+                        }
                     }
                     ServerMessage::WinAll(uid) => {
                         println!("玩家 {} 自摸", uid);
@@ -189,16 +217,16 @@ async fn main() {
                     }
                 }
             }
-            "discard" => {
-                if cmd.len() != 2 {
-                    println!("不合法的命令");
-                } else {
-                    let card = Cards::card_id(cmd[1].chars().nth(0).unwrap());
-                    let msg = ClientMessage::Discard(card);
-                    let msg = serde_json::to_string(&msg).unwrap();
-                    tx.send(Message::Text(msg.into())).await.unwrap();
-                }
-            }
+            // "discard" => {
+            //     if cmd.len() != 2 {
+            //         println!("不合法的命令");
+            //     } else {
+            //         let card = Cards::card_id(cmd[1].chars().nth(0).unwrap());
+            //         let msg = ClientMessage::Discard(card);
+            //         let msg = serde_json::to_string(&msg).unwrap();
+            //         tx.send(Message::Text(msg.into())).await.unwrap();
+            //     }
+            // }
             _ => {
                 println!("不合法的命令");
             }
