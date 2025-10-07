@@ -67,7 +67,7 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
             let hall = state.hall.read().await;
             let tx2games = state.tx2games.read().await;
             if let Some(room_id) = hall.belongs.get(&uid) {
-                return tx2games.send(room_id, msg);
+                return tx2games.send(room_id, (uid, msg));
             } else {
                 return Err(AppError::UserNotInRoom);
             }
