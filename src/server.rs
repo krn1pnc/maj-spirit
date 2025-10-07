@@ -7,8 +7,9 @@ use deadpool_sqlite::{Config, Runtime};
 use maj_spirit::config::{DATABASE_FILE, LISTEN_ADDR};
 use maj_spirit::state::AppState;
 use maj_spirit::{
-    handle_get_game_detail, handle_get_rankings, handle_hello, handle_login, handle_register,
-    handle_room_join, handle_room_leave, handle_room_start, handle_ws, init_db, jwt_auth,
+    handle_get_game_detail, handle_get_rankings, handle_get_round_detail, handle_hello,
+    handle_login, handle_register, handle_room_join, handle_room_leave, handle_room_start,
+    handle_ws, init_db, jwt_auth,
 };
 
 #[tokio::main]
@@ -35,6 +36,10 @@ async fn main() {
         .route("/login", post(handle_login))
         .route("/game/{game_id}/rankings", get(handle_get_rankings))
         .route("/game/{game_id}/detail", get(handle_get_game_detail))
+        .route(
+            "/game/{game_id}/round/{round_id}/detail",
+            get(handle_get_round_detail),
+        )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(LISTEN_ADDR).await.unwrap();

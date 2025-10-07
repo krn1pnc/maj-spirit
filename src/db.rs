@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::error::AppError;
 use crate::game::Game;
-use crate::query_data::GameDetail;
+use crate::query_data::{GameDetail, RoundDetail};
 
 pub async fn init_db(db_pool: &Pool) -> Result<(), AppError> {
     let db_conn = db_pool.get().await?;
@@ -179,7 +179,7 @@ pub async fn query_rankings(db_pool: &Pool, game_id: usize) -> Result<Vec<u64>, 
         .await?;
 }
 
-pub async fn query_game_details(db_pool: &Pool, game_id: usize) -> Result<GameDetail, AppError> {
+pub async fn query_game_detail(db_pool: &Pool, game_id: usize) -> Result<GameDetail, AppError> {
     let db_conn = db_pool.get().await?;
     return db_conn
         .interact(move |conn| {
@@ -194,6 +194,28 @@ pub async fn query_game_details(db_pool: &Pool, game_id: usize) -> Result<GameDe
                 res.players_score.push(row.1);
             }
             return Ok(res);
+        })
+        .await?;
+}
+
+pub async fn query_round_detail(
+    db_pool: &Pool,
+    game_id: usize,
+    round_id: usize,
+) -> Result<RoundDetail, AppError> {
+    let db_conn = db_pool.get().await?;
+    return db_conn
+        .interact(move |conn| {
+            let res: (String, _, _, String) = conn.query_row(
+                "SELECT (stack, winner_seat, loser_seat, discard)
+                FROM game_rounds
+                WHERE game_id = ?1 AND round_id = ?2",
+                (game_id, round_id),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?;
+            let stack: Vec<u8> = serde_json::from_str(&res.0)?;
+            let discard: Vec<u8> = serde_json::from_str(&res.3)?;
+            return Ok(RoundDetail::new(stack, discard, res.1, res.2));
         })
         .await?;
 }
