@@ -122,13 +122,22 @@ impl Round {
     }
 }
 
+pub struct RoundRecord {
+    pub stack: [u8; 136],
+    pub winner_seat: Option<usize>,
+    pub loser_seat: Option<usize>,
+    pub discard: Vec<u8>,
+}
+
 pub struct Game {
-    round: Round,
-    round_id: usize,
-    players: [u64; 4],
-    players_name: [String; 4],
-    players_score: [u64; 4],
-    conn: Arc<RwLock<TxManager<u64, ServerMessage>>>,
+    pub round: Round,
+    pub round_id: usize,
+    pub players: [u64; 4],
+    pub players_name: [String; 4],
+    pub players_score: [u64; 4],
+    pub conn: Arc<RwLock<TxManager<u64, ServerMessage>>>,
+
+    pub round_records: Vec<RoundRecord>,
 }
 
 impl Game {
@@ -144,6 +153,7 @@ impl Game {
             players_name,
             players_score: [0; 4],
             conn,
+            round_records: Vec::with_capacity(4),
         };
         return game;
     }
@@ -155,7 +165,7 @@ impl Game {
         }
     }
 
-    async fn broadcast(&self, msg: ServerMessage) {
+    pub async fn broadcast(&self, msg: ServerMessage) {
         for j in 0..4 {
             self.send(j, msg.clone()).await;
         }
@@ -163,7 +173,7 @@ impl Game {
 
     fn game_end(&mut self) {}
 
-    pub async fn round_start(&self) {
+    pub async fn round_start(&mut self) {
         for i in 0..4 {
             self.send(
                 i,
@@ -174,6 +184,12 @@ impl Game {
             )
             .await;
         }
+        self.round_records.push(RoundRecord {
+            stack: self.round.stack.stack,
+            winner_seat: None,
+            loser_seat: None,
+            discard: Vec::new(),
+        });
     }
 
     async fn next_round(&mut self) -> bool {
@@ -207,19 +223,39 @@ impl Game {
         )))
         .await;
 
+        // record win
+        if let Some(record) = self.round_records.last_mut() {
+            record.winner_seat = Some(win_player);
+            record.loser_seat = Some(lose_player);
+        } else {
+            tracing::error!("this should not happen");
+        }
+
         // prepare next round / end game
         return self.next_round().await;
     }
 
     async fn win_all(&mut self, win_player: usize) -> bool {
+        // process score change
         self.players_score[win_player] += 3;
         for i in 0..4 {
             if i != win_player {
                 self.players_score[i] -= 1;
             }
         }
+
+        // broadcast win message
         self.broadcast(ServerMessage::WinAll(self.players_name[win_player].clone()))
             .await;
+
+        // record win
+        if let Some(record) = self.round_records.last_mut() {
+            record.winner_seat = Some(win_player);
+        } else {
+            tracing::error!("this should not happen");
+        }
+
+        // prepare next round / end game
         return self.next_round().await;
     }
 
@@ -254,6 +290,13 @@ impl Game {
 
         // discard
         self.round.players_cards[player].delete(card);
+
+        // record discard
+        if let Some(record) = self.round_records.last_mut() {
+            record.discard.push(card);
+        } else {
+            tracing::error!("this should not happen");
+        }
 
         // check win one
         for i in 1..3 {

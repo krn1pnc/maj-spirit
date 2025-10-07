@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
@@ -6,11 +7,11 @@ use axum::http;
 use axum::response::IntoResponse;
 use tokio::sync::mpsc;
 
-use crate::db::get_username;
+use crate::db::{add_game, get_username};
 use crate::error::AppError;
-use crate::game;
+use crate::game::Game;
 use crate::state::AppState;
-use crate::ws::ClientMessage;
+use crate::ws::{ClientMessage, ServerMessage};
 
 #[derive(Default, Debug)]
 pub struct Hall {
@@ -80,18 +81,30 @@ async fn room_start(state: &AppState, room_id: usize, uid: u64) -> Result<(), Ap
 
         let players: [u64; 4] = players.try_into().unwrap();
         let players_name: [String; 4] = players_name.try_into().unwrap();
-        let conn_lock = state.tx2clients.clone();
-        let tx2rooms_lock = state.tx2games.clone();
+        let _state = state.clone();
         tokio::spawn(async move {
-            let mut game = game::Game::new(players, players_name, conn_lock);
+            let state = _state;
+
+            let mut game = Game::new(players, players_name, state.tx2clients);
             game.round_start().await;
             while let Some((msg_uid, msg)) = rx.recv().await {
                 if game.handle_message(msg, msg_uid).await {
                     break;
                 }
             }
-            let mut tx2rooms = tx2rooms_lock.write().await;
-            tx2rooms.delete(&room_id);
+
+            let game = Arc::new(game);
+            match add_game(&state.db_pool, game.clone()).await {
+                Ok(game_id) => {
+                    game.broadcast(ServerMessage::GameEnd(game_id)).await;
+                }
+                Err(e) => {
+                    tracing::error!("{}", e);
+                }
+            }
+
+            let mut tx2games = state.tx2games.write().await;
+            tx2games.delete(&room_id);
         });
 
         let mut tx2rooms = state.tx2games.write().await;

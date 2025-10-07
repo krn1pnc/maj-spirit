@@ -140,7 +140,7 @@ async fn main() {
                         println!("玩家 {} 打出了：{}", uid, Cards::card_name(card));
                     }
                     ServerMessage::RoundStart((uid, cards)) => {
-                        println!("本局开始，玩家 {} 是庄家", uid);
+                        println!("本轮开始，玩家 {} 是庄家", uid);
                         println!("你的牌是：{}", cards);
                     }
                     ServerMessage::WinAll(uid) => {
@@ -151,6 +151,9 @@ async fn main() {
                     }
                     ServerMessage::Tie => {
                         println!("流局");
+                    }
+                    ServerMessage::GameEnd(game_id) => {
+                        println!("游戏结束，对局 id 是 {}", game_id);
                     }
                 }
             }

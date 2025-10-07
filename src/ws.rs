@@ -17,13 +17,17 @@ pub enum ServerMessage {
     GameNotStart,
     UserNotInRoom,
     NotCurrentPlayer,
+
     GetCard(u8),
-    NotHaveCard,
     Discard((String, u8)),
+    NotHaveCard,
+
     RoundStart((String, Cards)),
     WinAll(String),
     WinOne((String, String)),
     Tie,
+
+    GameEnd(usize),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
