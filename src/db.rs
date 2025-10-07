@@ -161,3 +161,19 @@ pub async fn add_game(db_pool: &Pool, game: Arc<Game>) -> Result<usize, AppError
         })
         .await?;
 }
+
+pub async fn query_rankings(db_pool: &Pool, game_id: usize) -> Result<Vec<u64>, AppError> {
+    let db_conn = db_pool.get().await?;
+    return db_conn
+        .interact(move |conn| {
+            let mut stmt =
+                conn.prepare("SELECT uid FROM game_players WHERE game_id = ?1 ORDER BY rank ASC")?;
+            let rows = stmt.query_map((game_id,), |row| row.get(0))?;
+            let mut res = Vec::with_capacity(4);
+            for row in rows {
+                res.push(row?);
+            }
+            return Ok(res);
+        })
+        .await?;
+}
