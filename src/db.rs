@@ -15,34 +15,34 @@ pub async fn init_db(db_pool: &Pool) -> Result<(), AppError> {
                 "CREATE TABLE IF NOT EXISTS users(
                     uid INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT UNIQUE NOT NULL,
-                    passhash TEXT NOT NULL,
+                    passhash TEXT NOT NULL
                 )",
                 (),
             )?;
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS games(
-                    game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id INTEGER PRIMARY KEY AUTOINCREMENT
                 )",
                 (),
             )?;
             conn.execute(
-                "CREATE TABLE IF NOT EXIST game_players(
+                "CREATE TABLE IF NOT EXISTS game_players(
                     game_id INTEGER NOT NULL,
                     uid INTEGER NOT NULL,
                     seat INTEGER NOT NULL,
                     score INTEGER NOT NULL,
-                    rank INTEGER NOT NULL,
+                    rank INTEGER NOT NULL
                 )",
                 (),
             )?;
             conn.execute(
-                "CREATE TABLE IF NOT EXIST game_rounds(
+                "CREATE TABLE IF NOT EXISTS game_rounds(
                     game_id INTEGER NOT NULL,
                     round_id INTEGER NOT NULL,
                     stack TEXT NOT NULL,
                     winner_seat INTEGER,
                     loser_seat INTEGER,
-                    discard TEXT NOT NULL,
+                    discard TEXT NOT NULL
                 )",
                 (),
             )?;
@@ -127,7 +127,7 @@ pub async fn add_game(db_pool: &Pool, game: Arc<Game>) -> Result<usize, AppError
             let tx = conn.transaction()?;
 
             let game_id =
-                tx.query_one("INSERT INTO games RETURNING game_id", (), |row| row.get(0))?;
+                tx.query_one("INSERT INTO games DEFAULT VALUES RETURNING game_id", (), |row| row.get(0))?;
 
             let mut players = Vec::with_capacity(4);
             for i in 0..4 {
@@ -184,7 +184,7 @@ pub async fn query_game_detail(db_pool: &Pool, game_id: usize) -> Result<GameDet
     return db_conn
         .interact(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT (uid, score) FROM game_players WHERE game_id = ?1 ORDER BY seat ASC",
+                "SELECT uid, score FROM game_players WHERE game_id = ?1 ORDER BY seat ASC",
             )?;
             let rows = stmt.query_map((game_id,), |row| Ok((row.get(0)?, row.get(1)?)))?;
             let mut res = GameDetail::new();
@@ -207,7 +207,7 @@ pub async fn query_round_detail(
     return db_conn
         .interact(move |conn| {
             let res: (String, _, _, String) = conn.query_row(
-                "SELECT (stack, winner_seat, loser_seat, discard)
+                "SELECT stack, winner_seat, loser_seat, discard
                 FROM game_rounds
                 WHERE game_id = ?1 AND round_id = ?2",
                 (game_id, round_id),
