@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use crate::error::AppError;
 use crate::game::Game;
+use crate::query_data::GameDetail;
 
 pub async fn init_db(db_pool: &Pool) -> Result<(), AppError> {
     let db_conn = db_pool.get().await?;
@@ -172,6 +173,25 @@ pub async fn query_rankings(db_pool: &Pool, game_id: usize) -> Result<Vec<u64>, 
             let mut res = Vec::with_capacity(4);
             for row in rows {
                 res.push(row?);
+            }
+            return Ok(res);
+        })
+        .await?;
+}
+
+pub async fn query_game_details(db_pool: &Pool, game_id: usize) -> Result<GameDetail, AppError> {
+    let db_conn = db_pool.get().await?;
+    return db_conn
+        .interact(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT (uid, score) FROM game_players WHERE game_id = ?1 ORDER BY seat ASC",
+            )?;
+            let rows = stmt.query_map((game_id,), |row| Ok((row.get(0)?, row.get(1)?)))?;
+            let mut res = GameDetail::new();
+            for row in rows {
+                let row = row?;
+                res.players.push(row.0);
+                res.players_score.push(row.1);
             }
             return Ok(res);
         })
