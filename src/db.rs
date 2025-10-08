@@ -30,8 +30,7 @@ pub async fn init_db(db_pool: &Pool) -> Result<(), AppError> {
                     game_id INTEGER NOT NULL,
                     uid INTEGER NOT NULL,
                     seat INTEGER NOT NULL,
-                    score INTEGER NOT NULL,
-                    rank INTEGER NOT NULL
+                    score INTEGER NOT NULL
                 )",
                 (),
             )?;
@@ -129,16 +128,11 @@ pub async fn add_game(db_pool: &Pool, game: Arc<Game>) -> Result<usize, AppError
             let game_id =
                 tx.query_one("INSERT INTO games DEFAULT VALUES RETURNING game_id", (), |row| row.get(0))?;
 
-            let mut players = Vec::with_capacity(4);
-            for i in 0..4 {
-                players.push((game.players_score[i], game.players[i], i));
-            }
-            players.sort();
             for i in 0..4 {
                 tx.execute(
-                    "INSERT INTO game_players(game_id, uid, seat, score, rank)
-                    VALUES (?1, ?2, ?3, ?4, ?5)",
-                    (game_id, players[i].1, players[i].2, players[i].0, i),
+                    "INSERT INTO game_players(game_id, uid, seat, score)
+                    VALUES (?1, ?2, ?3, ?4)",
+                    (game_id, game.players[i], i, game.players_score[i]),
                 )?;
             }
 
@@ -167,8 +161,8 @@ pub async fn query_rankings(db_pool: &Pool, game_id: usize) -> Result<Vec<u64>, 
     let db_conn = db_pool.get().await?;
     return db_conn
         .interact(move |conn| {
-            let mut stmt =
-                conn.prepare("SELECT uid FROM game_players WHERE game_id = ?1 ORDER BY rank ASC")?;
+            let mut stmt = conn
+                .prepare("SELECT uid FROM game_players WHERE game_id = ?1 ORDER BY score DESC")?;
             let rows = stmt.query_map((game_id,), |row| row.get(0))?;
             let mut res = Vec::with_capacity(4);
             for row in rows {
