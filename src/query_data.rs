@@ -15,7 +15,7 @@ use crate::{
 #[derive(Serialize)]
 pub struct GameDetail {
     pub players: Vec<u64>,
-    pub players_score: Vec<u64>,
+    pub players_score: Vec<i64>,
 }
 impl GameDetail {
     pub fn new() -> GameDetail {

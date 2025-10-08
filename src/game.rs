@@ -142,7 +142,7 @@ pub struct Game {
     pub round_id: usize,
     pub players: [u64; 4],
     pub players_name: [String; 4],
-    pub players_score: [u64; 4],
+    pub players_score: [i64; 4],
     pub conn: Arc<RwLock<TxManager<u64, ServerMessage>>>,
 
     pub round_records: Vec<RoundRecord>,
