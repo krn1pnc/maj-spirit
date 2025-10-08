@@ -307,7 +307,7 @@ impl Game {
         }
 
         // check win one
-        for i in 1..3 {
+        for i in 1..4 {
             let check_player = (player + i) % 4;
             if check_win::check(&self.round.players_cards[check_player].copy_insert(card)) {
                 return self.win_one(check_player, player).await;
