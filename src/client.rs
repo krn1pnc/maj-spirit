@@ -114,7 +114,7 @@ async fn main() {
 
     let (ws_stream, ws_resp) = connect_async(ws_request.clone()).await.unwrap();
 
-    if ws_resp.status() != 200 {
+    if ws_resp.status().as_u16() > 299 {
         println!("WebSocket 连接失败");
         return;
     }
