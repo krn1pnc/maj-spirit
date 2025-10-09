@@ -49,4 +49,7 @@ pub enum AppError {
 
     #[error("mpsc send error: {0}")]
     MpscSend(String),
+
+    #[error("")]
+    GameNotExist,
 }

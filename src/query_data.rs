@@ -77,6 +77,7 @@ pub async fn handle_get_rankings(
 ) -> Response {
     match get_rankings(&state.db_pool, game_id).await {
         Ok(res) => return res.into_response(),
+        Err(AppError::GameNotExist) => return http::StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("{}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -90,6 +91,7 @@ pub async fn handle_get_game_detail(
 ) -> Response {
     match get_game_detail(&state.db_pool, game_id).await {
         Ok(res) => return res.into_response(),
+        Err(AppError::GameNotExist) => return http::StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("{}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
@@ -101,8 +103,12 @@ pub async fn handle_get_round_detail(
     Path((game_id, round_id)): Path<(usize, usize)>,
     State(state): State<AppState>,
 ) -> Response {
+    if round_id >= 4 {
+        return http::StatusCode::NOT_FOUND.into_response();
+    }
     match get_round_detail(&state.db_pool, game_id, round_id).await {
         Ok(res) => return res.into_response(),
+        Err(AppError::GameNotExist) => return http::StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("{}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();

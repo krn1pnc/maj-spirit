@@ -168,7 +168,11 @@ pub async fn query_rankings(db_pool: &Pool, game_id: usize) -> Result<Vec<u64>, 
             for row in rows {
                 res.push(row?);
             }
-            return Ok(res);
+            if res.len() == 0 {
+                return Err(AppError::GameNotExist);
+            } else {
+                return Ok(res);
+            }
         })
         .await?;
 }
@@ -187,7 +191,11 @@ pub async fn query_game_detail(db_pool: &Pool, game_id: usize) -> Result<GameDet
                 res.players.push(row.0);
                 res.players_score.push(row.1);
             }
-            return Ok(res);
+            if res.players.len() == 0 {
+                return Err(AppError::GameNotExist);
+            } else {
+                return Ok(res);
+            }
         })
         .await?;
 }
@@ -200,16 +208,27 @@ pub async fn query_round_detail(
     let db_conn = db_pool.get().await?;
     return db_conn
         .interact(move |conn| {
-            let res: (String, _, _, String) = conn.query_row(
+            let res: Result<(String, _, _, String), rusqlite::Error> = conn.query_row(
                 "SELECT stack, winner_seat, loser_seat, discard
                 FROM game_rounds
                 WHERE game_id = ?1 AND round_id = ?2",
                 (game_id, round_id),
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )?;
-            let stack: Vec<u8> = serde_json::from_str(&res.0)?;
-            let discard: Vec<u8> = serde_json::from_str(&res.3)?;
-            return Ok(RoundDetail::new(stack, discard, res.1, res.2));
+            );
+
+            match res {
+                Ok(res) => {
+                    let stack: Vec<u8> = serde_json::from_str(&res.0)?;
+                    let discard: Vec<u8> = serde_json::from_str(&res.3)?;
+                    return Ok(RoundDetail::new(stack, discard, res.1, res.2));
+                }
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    return Err(AppError::GameNotExist);
+                }
+                Err(e) => {
+                    return Err(e.into());
+                }
+            }
         })
         .await?;
 }
