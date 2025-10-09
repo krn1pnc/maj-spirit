@@ -73,11 +73,11 @@ impl Cards {
             .unwrap();
     }
 
-    pub fn card_id(name: char) -> u8 {
+    pub fn card_id(name: char) -> Option<u8> {
         return "壹贰叁肆伍陆柒捌玖一二三四五六七八九123456789东南西北白发中"
             .chars()
             .position(|x| x == name)
-            .unwrap() as u8;
+            .map(|x| x as u8);
     }
 }
 

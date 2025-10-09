@@ -24,12 +24,15 @@ pub enum ClientError {
 
     #[error("password incorrect")]
     PasswordIncorrect,
+
+    #[error("IO error: {0}")]
+    IO(#[from] std::io::Error),
 }
 
-fn read_line() -> String {
+fn read_line() -> Result<String, ClientError> {
     let mut input = String::new();
-    std::io::stdin().read_line(&mut input).unwrap();
-    return input;
+    std::io::stdin().read_line(&mut input)?;
+    return Ok(input);
 }
 
 fn prompt(s: &str) {
@@ -110,7 +113,7 @@ async fn main() {
     let client = ClientBuilder::default().build_blocking().unwrap();
 
     prompt("请输入服务器地址，直接回车默认为 127.0.0.1:3000：");
-    let mut addr = read_line().trim().to_owned();
+    let mut addr = read_line().unwrap().trim().to_owned();
 
     if addr == "" {
         addr = String::from("127.0.0.1:3000");
@@ -120,7 +123,7 @@ async fn main() {
     let ws_url = format!("ws://{}/ws", addr);
 
     prompt("请输入用户名：");
-    let username = read_line().trim().to_owned();
+    let username = read_line().unwrap().trim().to_owned();
     prompt("请输入密码：");
     let password = rpassword::read_password().unwrap();
 
@@ -165,9 +168,16 @@ async fn main() {
         let is_auto = is_auto_;
         let mut username_cache = HashMap::new();
         while let Some(msg) = rx.next().await {
-            if let Ok(Message::Text(msg)) = msg {
-                println!("recv {}", msg);
-                let msg: ServerMessage = serde_json::from_str(&msg).unwrap();
+            if let Ok(Message::Text(json_text)) = msg {
+                println!("recv {}", json_text);
+                let msg;
+                match serde_json::from_str(&json_text) {
+                    Ok(res) => msg = res,
+                    Err(e) => {
+                        println!("error while sending msg: {:?}", e);
+                        continue;
+                    }
+                }
                 match msg {
                     ServerMessage::GameNotStart => {
                         println!("游戏尚未启动");
@@ -246,8 +256,17 @@ async fn main() {
     });
 
     loop {
-        let cmd = read_line().trim().to_owned();
-        let cmd: Vec<&str> = cmd.split(' ').collect();
+        let input = read_line();
+        let cmd;
+        match input {
+            Ok(res) => cmd = res.trim().to_owned(),
+            Err(e) => {
+                println!("错误：{:?}", e);
+                continue;
+            }
+        }
+        let cmd: Vec<&str> = cmd.split_ascii_whitespace().collect();
+        println!("{:?}", cmd);
         match cmd[0] {
             "room" => {
                 if cmd.len() < 2 {
@@ -283,8 +302,10 @@ async fn main() {
                 if cmd.len() != 2 {
                     println!("不合法的命令");
                 } else {
-                    let card = Cards::card_id(cmd[1].chars().nth(0).unwrap());
-                    send_tx.send(ClientMessage::Discard(card)).unwrap();
+                    match Cards::card_id(cmd[1].chars().nth(0).unwrap()) {
+                        Some(card) => send_tx.send(ClientMessage::Discard(card)).unwrap(),
+                        None => println!("牌不存在"),
+                    }
                 }
             }
             "auto" => {
