@@ -12,17 +12,27 @@ use crate::game::Cards;
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct GameInfo {
+    pub round_id: usize,
+    pub players: [u64; 4],
+    pub players_score: [i64; 4],
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 #[serde(tag = "tag", content = "content")]
 pub enum ServerMessage {
     GameNotStart,
     UserNotInRoom,
     NotCurrentPlayer,
 
+    GameInfoSync(GameInfo),
+    CardSync(Cards),
+
     GetCard(u8),
     Discard((u64, u8)),
     NotHaveCard,
 
-    RoundStart((u64, Cards)),
+    RoundStart(usize),
     WinAll(u64),
     WinOne((u64, u64)),
     Tie,
@@ -33,6 +43,8 @@ pub enum ServerMessage {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "tag", content = "content")]
 pub enum ClientMessage {
+    RequestGameSync,
+    RequestCardSync,
     Discard(u8),
 }
 

@@ -154,27 +154,29 @@ async fn main() {
         }
     });
 
+    let current_game_info = Arc::new(RwLock::new(None));
     let current_cards = Arc::new(RwLock::new(Cards::default()));
     let is_auto = Arc::new(RwLock::new(false));
 
     let base_url_ = base_url.clone();
     let send_tx_ = send_tx.clone();
+    let current_game_info_ = current_game_info.clone();
     let currnet_cards_ = current_cards.clone();
     let is_auto_ = is_auto.clone();
     tokio::spawn(async move {
         let base_url = base_url_;
         let send_tx = send_tx_;
+        let current_game_info = current_game_info_;
         let current_cards = currnet_cards_;
         let is_auto = is_auto_;
         let mut username_cache = HashMap::new();
         while let Some(msg) = rx.next().await {
             if let Ok(Message::Text(json_text)) = msg {
-                println!("recv {}", json_text);
                 let msg;
                 match serde_json::from_str(&json_text) {
                     Ok(res) => msg = res,
                     Err(e) => {
-                        println!("error while sending msg: {:?}", e);
+                        println!("error while deserializing msg: {:?}", e);
                         continue;
                     }
                 }
@@ -188,6 +190,7 @@ async fn main() {
                     ServerMessage::NotCurrentPlayer => {
                         println!("你当前不能出牌");
                     }
+
                     ServerMessage::GetCard(card) => {
                         println!("你获得了：{}", Cards::card_name(card));
                         current_cards.write().await.insert(card);
@@ -214,19 +217,30 @@ async fn main() {
                             current_cards.write().await.delete(card);
                         }
                     }
-                    ServerMessage::RoundStart((uid, cards)) => {
-                        let current_username =
-                            get_username_cached(&base_url, uid, &mut username_cache).unwrap();
 
-                        println!("本轮开始，玩家 {} 是庄家", current_username);
-                        println!("你的牌是：{}", cards);
+                    ServerMessage::GameInfoSync(game_info) => {
+                        println!("同步游戏信息");
+                        println!(
+                            "玩家：{:?}",
+                            game_info.players.map(|uid| get_username_cached(
+                                &base_url,
+                                uid,
+                                &mut username_cache
+                            )
+                            .unwrap()
+                            .to_string())
+                        );
+                        println!("分数：{:?}", game_info.players_score);
+                        *current_game_info.write().await = Some(game_info);
+                    }
+                    ServerMessage::CardSync(cards) => {
+                        println!("同步手牌信息");
+                        println!("你现在的手牌是：{}", cards);
                         *current_cards.write().await = cards;
+                    }
 
-                        if current_username == &username && *is_auto.read().await {
-                            let cards = current_cards.read().await;
-                            let c = cards.into_iter().position(|x| x > 0).unwrap();
-                            send_tx.send(ClientMessage::Discard(c as u8)).unwrap();
-                        }
+                    ServerMessage::RoundStart(round_id) => {
+                        println!("本轮开始，为本局的第 {} 轮", round_id);
                     }
                     ServerMessage::WinAll(uid) => {
                         let current_username =
@@ -247,6 +261,7 @@ async fn main() {
                     ServerMessage::Tie => {
                         println!("流局");
                     }
+
                     ServerMessage::GameEnd(game_id) => {
                         println!("游戏结束，对局 id 是 {}", game_id);
                     }
@@ -254,6 +269,9 @@ async fn main() {
             }
         }
     });
+
+    send_tx.send(ClientMessage::RequestGameSync).unwrap();
+    send_tx.send(ClientMessage::RequestCardSync).unwrap();
 
     loop {
         let input = read_line();
@@ -266,7 +284,6 @@ async fn main() {
             }
         }
         let cmd: Vec<&str> = cmd.split_ascii_whitespace().collect();
-        println!("{:?}", cmd);
         match cmd[0] {
             "room" => {
                 if cmd.len() < 2 {

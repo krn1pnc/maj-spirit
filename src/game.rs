@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::txmanager::TxManager;
-use crate::ws::{ClientMessage, ServerMessage};
+use crate::ws::{ClientMessage, GameInfo, ServerMessage};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Cards {
@@ -173,18 +173,21 @@ impl Game {
         }
     }
 
-    fn game_end(&mut self) {}
+    pub async fn game_start(&mut self) {
+        let game_info = GameInfo {
+            round_id: self.round_id,
+            players: self.players,
+            players_score: self.players_score,
+        };
+        self.broadcast(ServerMessage::GameInfoSync(game_info)).await;
+        self.round_start().await;
+    }
 
     pub async fn round_start(&mut self) {
         for i in 0..4 {
-            self.send(
-                i,
-                ServerMessage::RoundStart((
-                    self.players[self.round.current_player],
-                    self.round.players_cards[i],
-                )),
-            )
-            .await;
+            self.send(i, ServerMessage::RoundStart(self.round_id)).await;
+            self.send(i, ServerMessage::CardSync(self.round.players_cards[i]))
+                .await;
         }
         self.round_records.push(RoundRecord {
             stack: self.round.stack.stack,
@@ -199,7 +202,6 @@ impl Game {
 
         // check game end
         if self.round_id == 4 {
-            self.game_end();
             return true;
         }
 
@@ -270,61 +272,79 @@ impl Game {
             }
         }
         let player = player.unwrap();
-        if player != self.round.current_player {
-            self.send(player, ServerMessage::NotCurrentPlayer).await;
-            return false;
-        }
 
-        let ClientMessage::Discard(card) = msg;
+        match msg {
+            ClientMessage::RequestGameSync => {
+                let game_info = GameInfo {
+                    round_id: self.round_id,
+                    players: self.players,
+                    players_score: self.players_score,
+                };
+                self.send(player, ServerMessage::GameInfoSync(game_info))
+                    .await;
+                return false;
+            }
+            ClientMessage::RequestCardSync => {
+                let cards = self.round.players_cards[player];
+                self.send(player, ServerMessage::CardSync(cards)).await;
+                return false;
+            }
+            ClientMessage::Discard(card) => {
+                if player != self.round.current_player {
+                    self.send(player, ServerMessage::NotCurrentPlayer).await;
+                    return false;
+                }
 
-        // check if the card can be discard
-        if self.round.players_cards[player][card as usize] == 0 {
-            self.send(player, ServerMessage::NotHaveCard).await;
-            return false;
-        }
+                // check if the card can be discard
+                if self.round.players_cards[player][card as usize] == 0 {
+                    self.send(player, ServerMessage::NotHaveCard).await;
+                    return false;
+                }
 
-        // broadcast discard
-        self.broadcast(ServerMessage::Discard((self.players[player], card)))
-            .await;
+                // broadcast discard
+                self.broadcast(ServerMessage::Discard((self.players[player], card)))
+                    .await;
 
-        // discard
-        self.round.players_cards[player].delete(card);
+                // discard
+                self.round.players_cards[player].delete(card);
 
-        // record discard
-        if let Some(record) = self.round_records.last_mut() {
-            record.discard.push(card);
-        } else {
-            tracing::error!("this should not happen");
-        }
+                // record discard
+                if let Some(record) = self.round_records.last_mut() {
+                    record.discard.push(card);
+                } else {
+                    tracing::error!("this should not happen");
+                }
 
-        // check win one
-        for i in 1..4 {
-            let check_player = (player + i) % 4;
-            if check_win::check(&self.round.players_cards[check_player].copy_insert(card)) {
-                return self.win_one(check_player, player).await;
+                // check win one
+                for i in 1..4 {
+                    let check_player = (player + i) % 4;
+                    if check_win::check(&self.round.players_cards[check_player].copy_insert(card)) {
+                        return self.win_one(check_player, player).await;
+                    }
+                }
+
+                // check tie
+                if self.round.stack.next == 136 {
+                    return self.tie().await;
+                }
+
+                // get next card
+                let next_card = self.round.stack.next();
+                let next_player = (player + 1) % 4;
+                self.round.players_cards[next_player].insert(next_card);
+                self.send(next_player, ServerMessage::GetCard(next_card))
+                    .await;
+
+                // check win all
+                if check_win::check(&self.round.players_cards[next_player]) {
+                    return self.win_all(next_player).await;
+                }
+
+                // maintain current_player
+                self.round.current_player = next_player;
+                return false;
             }
         }
-
-        // check tie
-        if self.round.stack.next == 136 {
-            return self.tie().await;
-        }
-
-        // get next card
-        let next_card = self.round.stack.next();
-        let next_player = (self.round.current_player + 1) % 4;
-        self.round.players_cards[next_player].insert(next_card);
-        self.send(next_player, ServerMessage::GetCard(next_card))
-            .await;
-
-        // check win all
-        if check_win::check(&self.round.players_cards[next_player]) {
-            return self.win_all(next_player).await;
-        }
-
-        // maintain current_player
-        self.round.current_player = next_player;
-        return false;
     }
 }
 

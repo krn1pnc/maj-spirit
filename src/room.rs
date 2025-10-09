@@ -81,7 +81,7 @@ async fn room_start(state: &AppState, room_id: usize, uid: u64) -> Result<(), Ap
             let state = _state;
 
             let mut game = Game::new(players, state.tx2clients);
-            game.round_start().await;
+            game.game_start().await;
             while let Some((msg_uid, msg)) = rx.recv().await {
                 if game.handle_message(msg, msg_uid).await {
                     break;
