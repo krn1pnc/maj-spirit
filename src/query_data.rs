@@ -6,11 +6,9 @@ use axum::{
 use deadpool_sqlite::Pool;
 use serde::Serialize;
 
-use crate::{
-    db::{query_game_detail, query_rankings, query_round_detail},
-    error::AppError,
-    state::AppState,
-};
+use crate::db::{query_game_detail, query_rankings, query_round_detail, query_username};
+use crate::error::AppError;
+use crate::state::AppState;
 
 #[derive(Serialize)]
 pub struct GameDetail {
@@ -71,6 +69,11 @@ async fn get_round_detail(
     return Ok(res);
 }
 
+async fn get_username(db_pool: &Pool, uid: u64) -> Result<String, AppError> {
+    let res = query_username(db_pool, uid).await?;
+    return Ok(res);
+}
+
 pub async fn handle_get_rankings(
     Path(game_id): Path<usize>,
     State(state): State<AppState>,
@@ -109,6 +112,17 @@ pub async fn handle_get_round_detail(
     match get_round_detail(&state.db_pool, game_id, round_id).await {
         Ok(res) => return res.into_response(),
         Err(AppError::GameNotExist) => return http::StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("{}", e);
+            return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    }
+}
+
+pub async fn handle_get_username(Path(uid): Path<u64>, State(state): State<AppState>) -> Response {
+    match get_username(&state.db_pool, uid).await {
+        Ok(res) => return res.into_response(),
+        Err(AppError::UserNotExist) => return http::StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("{}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();

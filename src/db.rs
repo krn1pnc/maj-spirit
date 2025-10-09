@@ -74,17 +74,22 @@ pub async fn add_user(db_pool: &Pool, username: &str, passhash: &str) -> Result<
         .await?;
 }
 
-pub async fn get_username(db_pool: &Pool, uid: u64) -> Result<String, AppError> {
+pub async fn query_username(db_pool: &Pool, uid: u64) -> Result<String, AppError> {
     let db_conn = db_pool.get().await?;
     let db_param = (uid,);
     return db_conn
         .interact(move |conn| {
-            let res = conn.query_one(
+            let res = conn.query_row(
                 "SELECT username FROM users WHERE uid = ?1",
                 db_param,
                 |row| row.get(0),
-            )?;
-            return Ok(res);
+            );
+
+            match res {
+                Ok(res) => return Ok(res),
+                Err(rusqlite::Error::QueryReturnedNoRows) => return Err(AppError::UserNotExist),
+                Err(e) => return Err(e.into()),
+            }
         })
         .await?;
 }
@@ -99,7 +104,7 @@ pub async fn verify_passhash(
     let passhash = passhash.to_string();
     return db_conn
         .interact(move |conn| {
-            let res = conn.query_one(
+            let res = conn.query_row(
                 "SELECT uid, passhash FROM users WHERE username = ?1",
                 db_params,
                 |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?)),
@@ -126,7 +131,7 @@ pub async fn add_game(db_pool: &Pool, game: Arc<Game>) -> Result<usize, AppError
             let tx = conn.transaction()?;
 
             let game_id =
-                tx.query_one("INSERT INTO games DEFAULT VALUES RETURNING game_id", (), |row| row.get(0))?;
+                tx.query_row("INSERT INTO games DEFAULT VALUES RETURNING game_id", (), |row| row.get(0))?;
 
             for i in 0..4 {
                 tx.execute(

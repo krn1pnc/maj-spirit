@@ -7,7 +7,7 @@ use axum::http;
 use axum::response::IntoResponse;
 use tokio::sync::mpsc;
 
-use crate::db::{add_game, get_username};
+use crate::db::add_game;
 use crate::error::AppError;
 use crate::game::Game;
 use crate::state::AppState;
@@ -69,23 +69,18 @@ async fn room_start(state: &AppState, room_id: usize, uid: u64) -> Result<(), Ap
         return Err(AppError::RoomNotFull);
     } else {
         let mut players = Vec::with_capacity(4);
-        let mut players_name = Vec::with_capacity(4);
-        for i in hall.rooms[&room_id].iter() {
-            let uid = *i;
-            let username = get_username(&state.db_pool, uid).await?;
-            players.push(uid);
-            players_name.push(username);
+        for &i in hall.rooms[&room_id].iter() {
+            players.push(i);
         }
 
         let (tx, mut rx) = mpsc::unbounded_channel::<(u64, ClientMessage)>();
 
         let players: [u64; 4] = players.try_into().unwrap();
-        let players_name: [String; 4] = players_name.try_into().unwrap();
         let _state = state.clone();
         tokio::spawn(async move {
             let state = _state;
 
-            let mut game = Game::new(players, players_name, state.tx2clients);
+            let mut game = Game::new(players, state.tx2clients);
             game.round_start().await;
             while let Some((msg_uid, msg)) = rx.recv().await {
                 if game.handle_message(msg, msg_uid).await {

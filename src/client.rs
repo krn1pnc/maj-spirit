@@ -1,4 +1,4 @@
-use std::{io::Write, sync::Arc, u8};
+use std::{collections::HashMap, io::Write, sync::Arc, u8};
 
 use futures_util::{SinkExt, StreamExt};
 use maj_spirit::{
@@ -84,6 +84,25 @@ fn login(
     }
 }
 
+fn get_username(base_url: &str, uid: u64) -> Result<String, ClientError> {
+    let client = ClientBuilder::default().build_blocking()?;
+    let res = client
+        .request(Request::get(format!("{}/user/{}/name", base_url, uid)))?
+        .text()?;
+    return Ok(res);
+}
+
+fn get_username_cached<'a>(
+    base_url: &'a str,
+    uid: u64,
+    cache: &'a mut HashMap<u64, String>,
+) -> Result<&'a str, ClientError> {
+    if !cache.contains_key(&uid) {
+        cache.insert(uid, get_username(base_url, uid)?);
+    }
+    return Ok(cache.get(&uid).unwrap());
+}
+
 #[tokio::main]
 async fn main() {
     nyquest_preset::register();
@@ -135,13 +154,16 @@ async fn main() {
     let current_cards = Arc::new(RwLock::new(Cards::default()));
     let is_auto = Arc::new(RwLock::new(false));
 
+    let base_url_ = base_url.clone();
     let send_tx_ = send_tx.clone();
     let currnet_cards_ = current_cards.clone();
     let is_auto_ = is_auto.clone();
     tokio::spawn(async move {
+        let base_url = base_url_;
         let send_tx = send_tx_;
         let current_cards = currnet_cards_;
         let is_auto = is_auto_;
+        let mut username_cache = HashMap::new();
         while let Some(msg) = rx.next().await {
             if let Ok(Message::Text(msg)) = msg {
                 println!("recv {}", msg);
@@ -171,27 +193,46 @@ async fn main() {
                         println!("你没有足够的牌");
                     }
                     ServerMessage::Discard((uid, card)) => {
-                        println!("玩家 {} 打出了：{}", uid, Cards::card_name(card));
-                        if uid == username {
+                        let current_username =
+                            get_username_cached(&base_url, uid, &mut username_cache).unwrap();
+                        println!(
+                            "玩家 {} 打出了：{}",
+                            current_username,
+                            Cards::card_name(card)
+                        );
+                        if current_username == &username {
                             current_cards.write().await.delete(card);
                         }
                     }
                     ServerMessage::RoundStart((uid, cards)) => {
-                        println!("本轮开始，玩家 {} 是庄家", uid);
+                        let current_username =
+                            get_username_cached(&base_url, uid, &mut username_cache).unwrap();
+
+                        println!("本轮开始，玩家 {} 是庄家", current_username);
                         println!("你的牌是：{}", cards);
                         *current_cards.write().await = cards;
 
-                        if uid == username && *is_auto.read().await {
+                        if current_username == &username && *is_auto.read().await {
                             let cards = current_cards.read().await;
                             let c = cards.into_iter().position(|x| x > 0).unwrap();
                             send_tx.send(ClientMessage::Discard(c as u8)).unwrap();
                         }
                     }
                     ServerMessage::WinAll(uid) => {
-                        println!("玩家 {} 自摸", uid);
+                        let current_username =
+                            get_username_cached(&base_url, uid, &mut username_cache).unwrap();
+                        println!("玩家 {} 自摸", current_username);
                     }
                     ServerMessage::WinOne((win_uid, lose_uid)) => {
-                        println!("玩家 {} 荣和，倒霉蛋是 {}", win_uid, lose_uid);
+                        let win_username =
+                            get_username_cached(&base_url, win_uid, &mut username_cache)
+                                .unwrap()
+                                .to_string();
+                        let lose_username =
+                            get_username_cached(&base_url, lose_uid, &mut username_cache)
+                                .unwrap()
+                                .to_string();
+                        println!("玩家 {} 荣和，倒霉蛋是 {}", win_username, lose_username);
                     }
                     ServerMessage::Tie => {
                         println!("流局");

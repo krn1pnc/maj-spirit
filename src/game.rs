@@ -141,7 +141,6 @@ pub struct Game {
     pub round: Round,
     pub round_id: usize,
     pub players: [u64; 4],
-    pub players_name: [String; 4],
     pub players_score: [i64; 4],
     pub conn: Arc<RwLock<TxManager<u64, ServerMessage>>>,
 
@@ -149,16 +148,11 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(
-        players: [u64; 4],
-        players_name: [String; 4],
-        conn: Arc<RwLock<TxManager<u64, ServerMessage>>>,
-    ) -> Game {
+    pub fn new(players: [u64; 4], conn: Arc<RwLock<TxManager<u64, ServerMessage>>>) -> Game {
         let game = Game {
             round: Round::new(0),
             round_id: 0,
             players,
-            players_name,
             players_score: [0; 4],
             conn,
             round_records: Vec::with_capacity(4),
@@ -186,7 +180,7 @@ impl Game {
             self.send(
                 i,
                 ServerMessage::RoundStart((
-                    self.players_name[self.round.current_player].clone(),
+                    self.players[self.round.current_player],
                     self.round.players_cards[i],
                 )),
             )
@@ -226,8 +220,8 @@ impl Game {
 
         // broadcast win message
         self.broadcast(ServerMessage::WinOne((
-            self.players_name[win_player].clone(),
-            self.players_name[lose_player].clone(),
+            self.players[win_player],
+            self.players[lose_player],
         )))
         .await;
 
@@ -253,7 +247,7 @@ impl Game {
         }
 
         // broadcast win message
-        self.broadcast(ServerMessage::WinAll(self.players_name[win_player].clone()))
+        self.broadcast(ServerMessage::WinAll(self.players[win_player]))
             .await;
 
         // record win
@@ -290,11 +284,8 @@ impl Game {
         }
 
         // broadcast discard
-        self.broadcast(ServerMessage::Discard((
-            self.players_name[player].clone(),
-            card,
-        )))
-        .await;
+        self.broadcast(ServerMessage::Discard((self.players[player], card)))
+            .await;
 
         // discard
         self.round.players_cards[player].delete(card);
