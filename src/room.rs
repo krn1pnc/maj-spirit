@@ -94,7 +94,7 @@ async fn room_start(state: &AppState, room_id: usize, uid: u64) -> Result<(), Ap
                     game.broadcast(ServerMessage::GameEnd(game_id)).await;
                 }
                 Err(e) => {
-                    tracing::error!("{}", e);
+                    tracing::error!("{:?}", e);
                 }
             }
 
@@ -130,7 +130,7 @@ pub async fn handle_room_join(
             return (http::StatusCode::CONFLICT, "room is full").into_response();
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!("{:?}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
@@ -150,7 +150,7 @@ pub async fn handle_room_leave(
             return (http::StatusCode::CONFLICT, "user not in room").into_response();
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!("{:?}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
@@ -173,7 +173,7 @@ pub async fn handle_room_start(
             return (http::StatusCode::CONFLICT, "room not full").into_response();
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!("{:?}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }

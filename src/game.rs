@@ -162,7 +162,7 @@ impl Game {
 
     async fn send(&self, player: usize, msg: ServerMessage) {
         match self.conn.read().await.send(&self.players[player], msg) {
-            Err(e) => tracing::error!("{}", e),
+            Err(e) => tracing::error!("{:?}", e),
             Ok(_) => (),
         }
     }
@@ -262,7 +262,7 @@ impl Game {
     }
 
     pub async fn handle_message(&mut self, msg: ClientMessage, uid: u64) -> bool {
-        tracing::info!("handle msg {:?} from {}", msg, uid);
+        tracing::debug!("handle msg {:?} from {}", msg, uid);
         let mut player = None;
         for i in 0..4 {
             if self.players[i] == uid {

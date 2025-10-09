@@ -44,14 +44,14 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
     let mut tx2clients = state.tx2clients.write().await;
     if !tx2clients.insert(uid, tx.clone()) {
         match ws_tx.send(ws::Message::Close(None)).await {
-            Err(e) => tracing::error!("{}", e),
+            Err(e) => tracing::error!("{:?}", e),
             Ok(()) => (),
         }
         return;
     }
     let send_handle = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
-            tracing::info!("send {:?} to {}", msg, uid);
+            tracing::debug!("send {:?} to {}", msg, uid);
 
             let msg = serde_json::to_string(&msg).unwrap();
             if ws_tx.send(ws::Message::Text(msg.into())).await.is_err() {
@@ -76,7 +76,7 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
         while let Some(msg) = ws_rx.next().await {
             match msg {
                 Ok(ws::Message::Text(json_text)) => {
-                    tracing::info!("recv {} from {}", json_text, uid);
+                    tracing::debug!("recv {:?} from {}", json_text, uid);
 
                     match handle_message(&json_text).await {
                         Err(AppError::TxNotExist) => {
@@ -86,14 +86,14 @@ async fn handle_socket(socket: ws::WebSocket, state: AppState, uid: u64) {
                             tx.send(ServerMessage::UserNotInRoom).unwrap();
                         }
                         Err(e) => {
-                            tracing::error!("{}", e);
+                            tracing::error!("{:?}", e);
                         }
                         _ => (),
                     }
                 }
                 Ok(ws::Message::Close(_)) => break,
                 Err(e) => {
-                    tracing::error!("{}", e);
+                    tracing::error!("{:?}", e);
                     break;
                 }
                 _ => (),

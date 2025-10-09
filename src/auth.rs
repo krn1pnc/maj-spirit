@@ -56,7 +56,7 @@ pub async fn handle_register(
             return (http::StatusCode::CONFLICT, "user exists").into_response();
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!("{:?}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
@@ -75,7 +75,7 @@ pub async fn handle_login(
             return (http::StatusCode::UNAUTHORIZED, "passord incorrect").into_response();
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!("{:?}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }

@@ -82,7 +82,7 @@ pub async fn handle_get_rankings(
         Ok(res) => return res.into_response(),
         Err(AppError::GameNotExist) => return http::StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!("{:?}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
@@ -96,7 +96,7 @@ pub async fn handle_get_game_detail(
         Ok(res) => return res.into_response(),
         Err(AppError::GameNotExist) => return http::StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!("{:?}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
@@ -113,7 +113,7 @@ pub async fn handle_get_round_detail(
         Ok(res) => return res.into_response(),
         Err(AppError::GameNotExist) => return http::StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!("{:?}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
@@ -124,7 +124,7 @@ pub async fn handle_get_username(Path(uid): Path<u64>, State(state): State<AppSt
         Ok(res) => return res.into_response(),
         Err(AppError::UserNotExist) => return http::StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!("{:?}", e);
             return http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
